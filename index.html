@@ -28,6 +28,12 @@
     button { min-height: 52px; border-radius: 12px; padding: 12px 18px; font: inherit; font-weight: 700; cursor: pointer; }
     #start { flex: 1; background: #80efb8; color: #082719; border: 1px solid #80efb8; }
     #stop { background: transparent; color: #d5e7dd; border: 1px solid #587366; }
+    #capture { width: 100%; margin-top: 12px; background: #80efb8; color: #082719; border: 0; }
+    #result { margin-top: 24px; padding: 16px; border: 1px solid #365447; border-radius: 16px; }
+    #result h2 { margin-top: 0; font-size: 20px; }
+    #photo { display: block; width: 100%; height: auto; border-radius: 8px; }
+    #retake, #download { flex: 1; background: #243e32; color: #eef7f2; border: 1px solid #587366; }
+    #download { text-align: center; text-decoration: none; padding: 14px 12px; border-radius: 12px; }
     button:disabled { opacity: .45; cursor: default; }
     button:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
     .status { padding: 15px 16px; border: 1px solid #365447; border-radius: 12px; margin-top: 16px; line-height: 1.7; overflow-wrap: anywhere; background: #192b23; }
@@ -39,7 +45,7 @@
 </head>
 <body>
 <main>
-  <div class="eyebrow">LUYA · STEP 1</div>
+  <div class="eyebrow">LUYA · STEP 2 · 車牌拍攝</div>
   <h1>LUYA 車牌辨識</h1>
   <p class="intro">開啟後鏡頭，將車牌置於中央綠框內。</p>
   <section class="preview" aria-label="相機即時預覽與車牌對準框">
@@ -57,8 +63,19 @@
     <button id="start" type="button">開啟相機</button>
     <button id="stop" type="button" disabled>關閉相機</button>
   </div>
+  <button id="capture" type="button" disabled>拍攝車牌</button>
   <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true">尚未開啟相機。請按上方按鈕，並在瀏覽器詢問時允許使用相機。</div>
-  <p class="note">此階段僅測試相機預覽與對準框，尚未辨識車牌。畫面只在此裝置顯示，不拍照、不錄影，也不上傳影像。請以手機 Chrome 開啟 GitHub Pages 的 HTTPS 網址。</p>
+  <section id="result" hidden aria-labelledby="result-title">
+    <h2 id="result-title">車牌照片</h2>
+    <img id="photo" alt="剛拍攝的綠框內車牌照片">
+    <p id="photo-info" class="note"></p>
+    <div class="actions">
+      <button id="retake" type="button">重拍</button>
+      <a id="download" download="luya-plate.png">下載照片</a>
+    </div>
+    <p class="note">請確認英文字母與數字清楚、車牌完整。若下載未開始，可長按照片儲存。</p>
+  </section>
+  <p class="note">按「拍攝車牌」擷取綠框內畫面，照片只留在此頁面，下載後才另存至裝置。此階段尚未辨識車牌，不錄影，也不上傳影像。請以手機 Chrome 開啟 GitHub Pages 的 HTTPS 網址。</p>
   <noscript><p>請啟用瀏覽器 JavaScript，才能開啟相機。</p></noscript>
 </main>
 <script>
@@ -69,6 +86,10 @@
   const status = document.getElementById('status');
   const badge = document.getElementById('badge');
   const placeholder = document.getElementById('placeholder');
+  const capture = document.getElementById('capture');
+  const result = document.getElementById('result');
+  const photo = document.getElementById('photo');
+  const download = document.getElementById('download');
   let stream = null;
   let requestId = 0;
 
@@ -85,6 +106,7 @@
     start.disabled = false;
     start.textContent = '開啟相機';
     stop.disabled = true;
+    capture.disabled = true;
     placeholder.hidden = false;
     badge.textContent = '相機未開啟';
   }
@@ -129,7 +151,7 @@
     try {
       const acquired = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { facingMode: { ideal: 'environment' } }
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
       });
       if (currentRequest !== requestId) {
         acquired.getTracks().forEach(track => track.stop());
@@ -146,6 +168,7 @@
       await video.play();
       if (currentRequest !== requestId) return;
       placeholder.hidden = true;
+      capture.disabled = false;
       badge.textContent = '即時預覽';
       start.textContent = '相機已開啟';
       const facing = track.getSettings ? track.getSettings().facingMode : null;
@@ -162,6 +185,56 @@
   stop.addEventListener('click', () => {
     releaseCamera();
     message('相機已關閉。需要預覽時，可再次按「開啟相機」。');
+  });
+
+  // Map the visible guide back to the source video, accounting for object-fit: cover.
+  function cropBounds(sourceWidth, sourceHeight, viewport, guide) {
+    const scale = Math.max(viewport.width / sourceWidth, viewport.height / sourceHeight);
+    const offsetX = (sourceWidth * scale - viewport.width) / 2;
+    const offsetY = (sourceHeight * scale - viewport.height) / 2;
+    const x = Math.max(0, (guide.left - viewport.left + offsetX) / scale);
+    const y = Math.max(0, (guide.top - viewport.top + offsetY) / scale);
+    return { x, y, width: Math.min(guide.width / scale, sourceWidth - x), height: Math.min(guide.height / scale, sourceHeight - y) };
+  }
+
+  capture.addEventListener('click', () => {
+    if (!stream || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+      message('相機畫面尚未準備好，請稍候再拍攝。', 'error');
+      return;
+    }
+    try {
+      const bounds = cropBounds(video.videoWidth, video.videoHeight,
+        video.getBoundingClientRect(), document.querySelector('.guide svg').getBoundingClientRect());
+      if (bounds.width <= 0 || bounds.height <= 0) throw new Error('Invalid crop');
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bounds.width));
+      canvas.height = Math.max(1, Math.round(bounds.height));
+      canvas.getContext('2d').drawImage(video, bounds.x, bounds.y, bounds.width, bounds.height,
+        0, 0, canvas.width, canvas.height);
+      const image = canvas.toDataURL('image/png');
+      photo.src = image;
+      download.href = image;
+      download.download = 'luya-plate-' + new Date().toISOString().replace(/[:.]/g, '-') + '.png';
+      document.getElementById('photo-info').textContent = '已擷取綠框範圍 · ' + canvas.width + ' × ' + canvas.height + ' 像素。尚未進行文字辨識。';
+      result.hidden = false;
+      message('拍攝完成！請檢查下方照片，可下載保存或重拍。');
+      result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (error) {
+      message('無法擷取照片，請確認相機畫面正常後重試。', 'error');
+    }
+  });
+
+  document.getElementById('retake').addEventListener('click', () => {
+    result.hidden = true;
+    photo.removeAttribute('src');
+    download.removeAttribute('href');
+    document.querySelector('.preview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (stream) {
+      message('請重新對準車牌，再按「拍攝車牌」。');
+      capture.focus({ preventScroll: true });
+    } else {
+      start.click();
+    }
   });
   // Leaving the page releases the camera, including pending permission requests.
   window.addEventListener('pagehide', () => {
