@@ -29,6 +29,12 @@
     #start { flex: 1; background: #80efb8; color: #082719; border: 1px solid #80efb8; }
     #stop { background: transparent; color: #d5e7dd; border: 1px solid #587366; }
     #capture { width: 100%; margin-top: 12px; background: #80efb8; color: #082719; border: 0; }
+    #recognize { width: 100%; margin-top: 16px; background: #80efb8; color: #082719; border: 0; }
+    details { padding: 16px; border: 1px solid #365447; border-radius: 12px; margin-bottom: 18px; }
+    label { display: block; margin: 12px 0 6px; }
+    input { width: 100%; padding: 12px; border: 1px solid #587366; border-radius: 8px; background: #0b1711; color: #fff; font: inherit; }
+    #plate { font-size: 28px; text-transform: uppercase; }
+    #check { margin-top: 12px; }
     #result { margin-top: 24px; padding: 16px; border: 1px solid #365447; border-radius: 16px; }
     #result h2 { margin-top: 0; font-size: 20px; }
     #photo { display: block; width: 100%; height: auto; border-radius: 8px; }
@@ -45,9 +51,18 @@
 </head>
 <body>
 <main>
-  <div class="eyebrow">LUYA · STEP 2 · 車牌拍攝</div>
+  <div class="eyebrow">LUYA · STEP 3 · 車牌辨識</div>
   <h1>LUYA 車牌辨識</h1>
   <p class="intro">開啟後鏡頭，將車牌置於中央綠框內。</p>
+  <details id="connection">
+    <summary>連接電腦辨識服務（首次使用請設定）</summary>
+    <label for="endpoint">電腦連線網址</label>
+    <input id="endpoint" type="url" placeholder="https://…trycloudflare.com" autocapitalize="none" spellcheck="false">
+    <label for="key">連線金鑰</label>
+    <input id="key" type="password" autocomplete="off" placeholder="貼上電腦顯示的連線金鑰">
+    <button id="check" type="button">測試連線</button>
+    <p id="connection-status" role="status" class="note">尚未測試。金鑰只留在本分頁記憶體，重新整理後須重填。</p>
+  </details>
   <section class="preview" aria-label="相機即時預覽與車牌對準框">
     <video id="video" autoplay muted playsinline aria-label="相機即時畫面"></video>
     <div id="placeholder" class="placeholder">按下「開啟相機」開始預覽</div>
@@ -69,13 +84,19 @@
     <h2 id="result-title">車牌照片</h2>
     <img id="photo" alt="剛拍攝的綠框內車牌照片">
     <p id="photo-info" class="note"></p>
+    <button id="recognize" type="button">辨識車牌</button>
+    <p id="ocr-status" role="status" aria-live="polite"></p>
+    <div id="plate-result" hidden>
+      <label for="plate">辨識結果（請核對，可手動修改）</label>
+      <input id="plate" maxlength="20" autocomplete="off" spellcheck="false">
+    </div>
     <div class="actions">
       <button id="retake" type="button">重拍</button>
       <a id="download" download="luya-plate.png">下載照片</a>
     </div>
     <p class="note">請確認英文字母與數字清楚、車牌完整。若下載未開始，可長按照片儲存。</p>
   </section>
-  <p class="note">按「拍攝車牌」擷取綠框內畫面，照片只留在此頁面，下載後才另存至裝置。此階段尚未辨識車牌，不錄影，也不上傳影像。請以手機 Chrome 開啟 GitHub Pages 的 HTTPS 網址。</p>
+  <p class="note">只有按「辨識車牌」才會將照片經 Cloudflare 加密連線送至你的電腦處理。辨識服務不儲存照片，不使用雲端 OCR。此版本測試三個英文字母加四位數字的車牌，結果請人工核對。</p>
   <noscript><p>請啟用瀏覽器 JavaScript，才能開啟相機。</p></noscript>
 </main>
 <script>
@@ -90,6 +111,81 @@
   const result = document.getElementById('result');
   const photo = document.getElementById('photo');
   const download = document.getElementById('download');
+  const recognize = document.getElementById('recognize');
+  const ocrStatus = document.getElementById('ocr-status');
+  const plateResult = document.getElementById('plate-result');
+  const plate = document.getElementById('plate');
+  let ocrGeneration = 0;
+  let ocrController = null;
+  function resetRecognition() {
+    ocrGeneration++;
+    if (ocrController) ocrController.abort();
+    recognize.disabled = false;
+    recognize.textContent = '辨識車牌';
+    ocrStatus.textContent = '';
+    plate.value = '';
+    plateResult.hidden = true;
+  }
+  function connectionSettings() {
+    const url = new URL(document.getElementById('endpoint').value.trim());
+    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))) {
+      throw new Error('請填入電腦顯示的 HTTPS 連線網址。');
+    }
+    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('請只貼上連線網址，不要包含路徑或其他文字。');
+    const key = document.getElementById('key').value.trim();
+    if (!key) throw new Error('請填入連線金鑰。');
+    return { url: url.origin, key };
+  }
+  async function requestService(path, options = {}) {
+    let config;
+    try { config = connectionSettings(); }
+    catch (e) { throw new Error(e instanceof TypeError ? '請先展開連線設定，填入電腦連線網址。' : e.message); }
+    const response = await fetch(config.url + path, {
+      ...options, headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + config.key },
+      cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer'
+    });
+    let data;
+    try { data = await response.json(); } catch (_) { throw new Error('服務沒有回應，請確認電腦的兩個視窗保持開啟，且網址為本次啟動的網址。'); }
+    if (!response.ok) throw new Error(data.error || '服務暫時無法使用。');
+    return data;
+  }
+  document.getElementById('check').addEventListener('click', async () => {
+    const label = document.getElementById('connection-status');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    document.getElementById('check').disabled = true;
+    label.textContent = '正在測試…';
+    try {
+      await requestService('/health', { signal: controller.signal });
+      label.textContent = '已連接電腦，可以拍攝並辨識車牌。';
+    } catch (e) { label.textContent = e.name === 'AbortError' ? '連線逾時，請檢查電腦服務與網址。' : (e instanceof TypeError ? '無法連線，請檢查電腦服務、網路與網址。' : e.message); }
+    finally { clearTimeout(timeout); document.getElementById('check').disabled = false; }
+  });
+  recognize.addEventListener('click', async () => {
+    const image = photo.getAttribute('src');
+    if (!image) return;
+    resetRecognition();
+    const generation = ocrGeneration;
+    ocrController = new AbortController();
+    const controller = ocrController;
+    const timeout = setTimeout(() => controller.abort(), 45000);
+    recognize.disabled = true;
+    recognize.textContent = '辨識中…';
+    ocrStatus.textContent = '照片正在傳送至電腦辨識，請稍候。';
+    try {
+      const data = await requestService('/recognize', { method: 'POST', body: JSON.stringify({image}), signal: controller.signal });
+      if (generation !== ocrGeneration) return;
+      plate.value = data.plate || '';
+      plateResult.hidden = false;
+      ocrStatus.textContent = data.plate ? '辨識完成（電腦處理 ' + data.seconds + ' 秒）。請核對下方號碼。' : '未取得符合格式的車牌。可手動輸入或靠近、對正車牌後重拍。';
+    } catch (e) {
+      if (generation !== ocrGeneration) return;
+      ocrStatus.textContent = e.name === 'AbortError' ? '辨識逾時，請確認電腦連線後重試。' : (e instanceof TypeError ? '無法連線，請檢查電腦服務與連線設定。' : e.message);
+    } finally {
+      clearTimeout(timeout);
+      if (generation === ocrGeneration) { recognize.disabled = false; recognize.textContent = '辨識車牌'; }
+    }
+  });
   let stream = null;
   let requestId = 0;
 
@@ -212,6 +308,7 @@
       canvas.getContext('2d').drawImage(video, bounds.x, bounds.y, bounds.width, bounds.height,
         0, 0, canvas.width, canvas.height);
       const image = canvas.toDataURL('image/png');
+      resetRecognition();
       photo.src = image;
       download.href = image;
       download.download = 'luya-plate-' + new Date().toISOString().replace(/[:.]/g, '-') + '.png';
@@ -225,6 +322,7 @@
   });
 
   document.getElementById('retake').addEventListener('click', () => {
+    resetRecognition();
     result.hidden = true;
     photo.removeAttribute('src');
     download.removeAttribute('href');
@@ -238,6 +336,7 @@
   });
   // Leaving the page releases the camera, including pending permission requests.
   window.addEventListener('pagehide', () => {
+    resetRecognition();
     releaseCamera();
     message('相機已關閉。請按「開啟相機」重新開始預覽。');
   });
