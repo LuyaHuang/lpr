@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#101b19">
   <title>LUYA 車牌辨識</title>
+  <link rel="icon" type="image/png" href="./favicon.png?v=2">
+  <link rel="apple-touch-icon" href="./favicon.png?v=2">
   <style>
     :root { color-scheme: dark; font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif; background: #101b19; color: #eef7f2; }
     * { box-sizing: border-box; }
@@ -16,8 +18,11 @@
     .preview { position: relative; width: 100%; height: 58vh; min-height: 270px; max-height: 560px; background: #060c0a; border: 1px solid #354b42; border-radius: 20px; overflow: hidden; }
     video { display: block; width: 100%; height: 100%; object-fit: cover; }
     .placeholder { position: absolute; top: 19%; left: 12px; right: 12px; text-align: center; color: #b5c9c0; }
-    .guide { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 78%; max-width: 460px; aspect-ratio: 3.2 / 1; border: 3px solid #4aee9a; border-radius: 12px; box-shadow: 0 0 0 999px #0003; pointer-events: none; }
-    .guide-label { position: absolute; top: calc(50% + 17%); width: 100%; text-align: center; padding: 0 12px; color: #c0fbdc; font-size: 14px; text-shadow: 0 1px 5px #000; }
+    /* Taiwan newer automobile plate: 380 x 160 mm (19:8).
+       SVG viewBox preserves the ratio on older mobile Chrome as well. */
+    .guide { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 88%; max-width: 520px; pointer-events: none; }
+    .guide svg { display: block; width: 100%; height: auto; overflow: visible; border-radius: 12px; box-shadow: 0 0 0 999px #0003; }
+    .guide-label { position: absolute; top: 100%; margin-top: 16px; width: 100%; text-align: center; padding: 0 12px; color: #c0fbdc; font-size: 14px; text-shadow: 0 1px 5px #000; }
     .badge { position: absolute; top: 16px; left: 16px; background: #101b19dc; border: 1px solid #486354; padding: 6px 10px; border-radius: 20px; font-size: 12px; }
     .actions { display: flex; gap: 12px; margin-top: 20px; }
     button { min-height: 52px; border-radius: 12px; padding: 12px 18px; font: inherit; font-weight: 700; cursor: pointer; }
@@ -29,7 +34,7 @@
     .status[data-kind="error"] { color: #ffe0d6; background: #392622; border-color: #9c6150; }
     .note { color: #a3b9ae; font-size: 13px; line-height: 1.8; margin-top: 18px; }
     [hidden] { display: none !important; }
-    @media (orientation: landscape) and (max-height: 550px) { .preview { height: 65vh; min-height: 220px; } }
+    @media (orientation: landscape) and (max-height: 550px) { .preview { height: 65vh; min-height: 220px; } .guide { max-width: min(520px, 100vh); } }
   </style>
 </head>
 <body>
@@ -40,8 +45,12 @@
   <section class="preview" aria-label="相機即時預覽與車牌對準框">
     <video id="video" autoplay muted playsinline aria-label="相機即時畫面"></video>
     <div id="placeholder" class="placeholder">按下「開啟相機」開始預覽</div>
-    <div class="guide" aria-hidden="true"></div>
-    <div class="guide-label">車牌對準此處</div>
+    <div class="guide" aria-hidden="true">
+      <svg viewBox="0 0 380 160" width="380" height="160" focusable="false">
+        <rect x="0" y="0" width="380" height="160" rx="10" fill="none" stroke="#4aee9a" stroke-width="3" vector-effect="non-scaling-stroke" />
+      </svg>
+      <div class="guide-label">車牌對準此處</div>
+    </div>
     <div id="badge" class="badge">相機未開啟</div>
   </section>
   <div class="actions">
