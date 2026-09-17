@@ -45,11 +45,6 @@
     .status { padding: 15px 16px; border: 1px solid #365447; border-radius: 12px; margin-top: 16px; line-height: 1.7; overflow-wrap: anywhere; background: #192b23; }
     .status[data-kind="error"] { color: #ffe0d6; background: #392622; border-color: #9c6150; }
     .note { color: #a3b9ae; font-size: 13px; line-height: 1.8; margin-top: 18px; }
-    #ocr-status { margin-top: 12px; padding: 12px 14px; border-radius: 10px; line-height: 1.6; overflow-wrap: anywhere; min-height: 1.6em; }
-    #ocr-status:not(:empty) { background: #192b23; border: 1px solid #365447; }
-    #ocr-status[data-kind="error"] { color: #ffe0d6; background: #392622; border-color: #9c6150; }
-    #ocr-status[data-kind="ok"] { color: #c0fbdc; background: #143028; border-color: #2f6b4e; }
-    #plate-result { margin-top: 14px; }
     [hidden] { display: none !important; }
     @media (orientation: landscape) and (max-height: 550px) { .preview { height: 65vh; min-height: 220px; } .guide { max-width: min(520px, 100vh); } }
   </style>
@@ -128,7 +123,6 @@
     recognize.disabled = false;
     recognize.textContent = '辨識車牌';
     ocrStatus.textContent = '';
-    ocrStatus.dataset.kind = '';
     plate.value = '';
     plateResult.hidden = true;
   }
@@ -169,11 +163,7 @@
   });
   recognize.addEventListener('click', async () => {
     const image = photo.getAttribute('src');
-    if (!image) {
-      ocrStatus.textContent = '請先拍攝車牌照片。';
-      ocrStatus.dataset.kind = 'error';
-      return;
-    }
+    if (!image) return;
     resetRecognition();
     const generation = ocrGeneration;
     ocrController = new AbortController();
@@ -181,33 +171,19 @@
     const timeout = setTimeout(() => controller.abort(), 45000);
     recognize.disabled = true;
     recognize.textContent = '辨識中…';
-    ocrStatus.textContent = '照片正在傳送至電腦辨識，請稍候…';
-    ocrStatus.dataset.kind = '';
+    ocrStatus.textContent = '照片正在傳送至電腦辨識，請稍候。';
     try {
-      const data = await requestService('/recognize', { method: 'POST', body: JSON.stringify({ image }), signal: controller.signal });
+      const data = await requestService('/recognize', { method: 'POST', body: JSON.stringify({image}), signal: controller.signal });
       if (generation !== ocrGeneration) return;
       plate.value = data.plate || '';
       plateResult.hidden = false;
-      if (data.plate) {
-        ocrStatus.textContent = '辨識完成（電腦處理 ' + (data.seconds || '?') + ' 秒）。請核對下方號碼。';
-        ocrStatus.dataset.kind = 'ok';
-      } else {
-        ocrStatus.textContent = '未取得符合格式的車牌。可手動輸入或靠近、對正車牌後重拍。';
-        ocrStatus.dataset.kind = 'error';
-      }
+      ocrStatus.textContent = data.plate ? '辨識完成（電腦處理 ' + data.seconds + ' 秒）。請核對下方號碼。' : '未取得符合格式的車牌。可手動輸入或靠近、對正車牌後重拍。';
     } catch (e) {
       if (generation !== ocrGeneration) return;
-      const msg = e.name === 'AbortError'
-        ? '辨識逾時，請確認電腦兩個視窗都保持開啟後重試。'
-        : (e instanceof TypeError ? '無法連線，請檢查電腦服務與連線設定。' : e.message);
-      ocrStatus.textContent = msg;
-      ocrStatus.dataset.kind = 'error';
+      ocrStatus.textContent = e.name === 'AbortError' ? '辨識逾時，請確認電腦連線後重試。' : (e instanceof TypeError ? '無法連線，請檢查電腦服務與連線設定。' : e.message);
     } finally {
       clearTimeout(timeout);
-      if (generation === ocrGeneration) {
-        recognize.disabled = false;
-        recognize.textContent = '辨識車牌';
-      }
+      if (generation === ocrGeneration) { recognize.disabled = false; recognize.textContent = '辨識車牌'; }
     }
   });
   let stream = null;
