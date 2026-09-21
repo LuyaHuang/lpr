@@ -25,7 +25,8 @@ button,input{font:inherit}button{cursor:pointer;border:1px solid #587366;border-
 <section id="connection" hidden aria-label="連線設定">
 <label for="endpoint">電腦連線網址</label><input id="endpoint" type="url" placeholder="https://…trycloudflare.com" autocapitalize="none" spellcheck="false" autocomplete="off">
 <label for="key">Connection Key／連線金鑰</label><input id="key" type="password" autocomplete="off" placeholder="貼上電腦顯示的連線金鑰">
-<button id="check" type="button">測試連線</button><p id="connection-status" role="status" class="note">尚未測試。金鑰只留在本分頁記憶體，重新整理後須重填。</p>
+<button id="check" type="button">測試連線</button><p id="connection-status" role="status" class="note">尚未測試。</p>
+<button id="forget-settings" type="button">清除記住的設定</button><p id="storage-status" class="note" role="status">網址與金鑰會自動記在這支手機的瀏覽器；請使用自己的手機。</p>
 </section>
 <section class="preview" aria-label="相機即時預覽">
 <video id="video" autoplay muted playsinline aria-label="相機即時畫面"></video>
@@ -45,6 +46,33 @@ let stream=null, starting=false, busy=false, requestId=0, generation=0, ocrContr
 function message(text,kind='info'){status.textContent=text;status.dataset.kind=kind;}
 function openSettings(open){$('connection').hidden=!open;$('settings-toggle').setAttribute('aria-expanded',String(open));}
 $('settings-toggle').addEventListener('click',()=>openSettings($('connection').hidden));
+const storageKey='luya-plate-connection-v1';
+function saveSettings(){
+  try{
+    localStorage.setItem(storageKey,JSON.stringify({url:$('endpoint').value.trim(),key:$('key').value.trim()}));
+    $('storage-status').textContent='已記住設定，下次使用同一瀏覽器開啟會自動帶入。';
+  }catch(_){$('storage-status').textContent='瀏覽器無法儲存設定，本次仍可使用；下次需重新填寫。';}
+}
+function restoreSettings(){
+  try{
+    const raw=localStorage.getItem(storageKey);if(!raw)return;
+    const saved=JSON.parse(raw);
+    if(!saved || typeof saved.url!=='string' || typeof saved.key!=='string')throw new Error('Invalid settings');
+    $('endpoint').value=saved.url;$('key').value=saved.key;
+    $('storage-status').textContent='已帶入記住的設定；網址若有更換，請更新後測試連線。';
+  }catch(_){$('storage-status').textContent='無法讀取記住的設定，請重新填寫。';}
+}
+for(const id of ['endpoint','key'])$(id).addEventListener('input',()=>{
+  saveSettings();$('connection-status').textContent='設定已變更，尚未測試。';
+});
+$('forget-settings').addEventListener('click',()=>{
+  try{
+    localStorage.removeItem(storageKey);
+    $('endpoint').value='';$('key').value='';
+    $('storage-status').textContent='已清除記住的網址與金鑰。';$('connection-status').textContent='尚未設定。';
+  }catch(_){$('storage-status').textContent='無法清除，請從瀏覽器的網站設定清除本站資料。';}
+});
+restoreSettings();
 function syncGuide(){guide.setAttribute('aria-disabled',String(busy || !stream));document.querySelector('.preview').dataset.busy=String(busy);}
   function connectionSettings() {
     const url = new URL(document.getElementById('endpoint').value.trim());
