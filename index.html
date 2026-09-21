@@ -14,7 +14,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px;ma
 button,input{font:inherit}button{cursor:pointer;border:1px solid #587366;border-radius:12px;padding:10px 14px;min-height:44px;background:#243e32;color:#eef7f2}button:disabled{opacity:.55;cursor:default}button:focus-visible{outline:3px solid white;outline-offset:4px}
 #settings-toggle{white-space:nowrap}#connection{border:1px solid #365447;border-radius:16px;padding:16px;margin-bottom:18px}label{display:block;margin:10px 0 6px}input{width:100%;padding:12px;background:#0b1711;color:white;border:1px solid #587366;border-radius:8px}#check{margin-top:12px}.note{font-size:13px;color:#aec5b9;line-height:1.7}
 .preview{position:relative;width:100%;aspect-ratio:19/9;background:#060c0a;border:1px solid #354b42;border-radius:18px;overflow:hidden}video{display:block;width:100%;height:100%;object-fit:cover}
-.guide{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:88%;padding:0;border:0;border-radius:10px;min-height:0;background:transparent;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+.guide{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:88%;padding:0;border:0;border-radius:10px;min-height:0;background:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 .guide svg{display:block;width:100%;height:auto;overflow:visible;box-shadow:0 0 0 999px #0003;border-radius:10px;pointer-events:none}.guide[aria-disabled="true"]{cursor:wait}.preview[data-busy="true"] .guide rect{stroke:#ffd783}
 .camera-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#101b19eb;padding:16px;text-align:center;color:#b5c9c0}
 .hint{text-align:center;color:#a9d9c0;font-size:14px;margin:12px 0}.status{padding:14px 16px;border:1px solid #365447;border-radius:12px;line-height:1.65;background:#192b23;overflow-wrap:anywhere}.status[data-kind="error"]{color:#ffe0d6;background:#392622;border-color:#9c6150}
@@ -29,11 +29,11 @@ button,input{font:inherit}button{cursor:pointer;border:1px solid #587366;border-
 </section>
 <section class="preview" aria-label="相機即時預覽">
 <video id="video" autoplay muted playsinline aria-label="相機即時畫面"></video>
-<button id="guide" class="guide" type="button" aria-label="雙點綠框辨識車牌；鍵盤可按 Enter 或空白鍵" aria-disabled="true">
+<button id="guide" class="guide" type="button" aria-label="點一下綠框辨識車牌；鍵盤可按 Enter 或空白鍵" aria-disabled="true">
 <svg viewBox="0 0 380 160" width="380" height="160" aria-hidden="true"><rect x="0" y="0" width="380" height="160" rx="10" fill="none" stroke="#4aee9a" stroke-width="3" vector-effect="non-scaling-stroke"/></svg></button>
 <div id="camera-overlay" class="camera-overlay"><span id="camera-label">正在開啟相機…</span><button id="retry" type="button" hidden>點一下開啟相機</button></div>
 </section>
-<p class="hint">雙點綠框即可辨識</p>
+<p class="hint">點一下綠框即可辨識</p>
 <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true">正在啟動相機…</div>
 <section id="result" aria-label="辨識與資料庫查詢結果" aria-live="polite" aria-atomic="true"><h2>車牌辨識結果</h2><div id="plate">—</div><p id="database-status">尚未辨識車牌</p><ul id="students" hidden></ul></section>
 <noscript><p>請啟用瀏覽器 JavaScript，才能開啟相機。</p></noscript>
@@ -154,7 +154,7 @@ async function captureAndRecognize(){
   if(busy)return;
   if(!stream || video.readyState<2 || !video.videoWidth || !video.videoHeight){message('相機畫面尚未準備好，請稍候再試。','error');return;}
   try{connectionSettings();}catch(e){openSettings(true);message(e instanceof TypeError?'請在設定填入有效的電腦連線網址。':e.message,'error');return;}
-  busy=true;lastTap=null;syncGuide();const id=++generation;
+  busy=true;syncGuide();const id=++generation;
   $('plate').textContent='—';$('students').replaceChildren();$('students').hidden=true;$('database-status').textContent='等待車牌辨識';message('辨識中…');
   const controller=new AbortController();ocrController=controller;
   const timeout=setTimeout(()=>controller.abort(),45000);
@@ -170,7 +170,7 @@ async function captureAndRecognize(){
     clearTimeout(timeout);image=null;canvas.width=canvas.height=0;
     if(id!==generation)return;
     const plate=typeof data.plate==='string'?data.plate.trim():'';
-    if(!plate){message('未取得符合格式的車牌，請靠近、對正後再次雙點綠框。','error');$('database-status').textContent='尚無車牌可供查詢';return;}
+    if(!plate){message('未取得符合格式的車牌，請靠近、對正後再點一下綠框。','error');$('database-status').textContent='尚無車牌可供查詢';return;}
     $('plate').textContent=plate;message('車牌辨識成功，請核對號碼。');
     try{const match=await lookupPlate(plate);if(id===generation)renderDatabase(match);}
     catch(e){if(id===generation)$('database-status').textContent='車牌辨識成功／資料庫查詢失敗，請稍後再試。';}
@@ -180,29 +180,12 @@ async function captureAndRecognize(){
     $('database-status').textContent='辨識未完成';
   }finally{
     clearTimeout(timeout);image=null;if(canvas)canvas.width=canvas.height=0;
-    if(id===generation){ocrController=null;busy=false;lastTap=null;syncGuide();}
+    if(id===generation){ocrController=null;busy=false;syncGuide();}
   }
 }
-// Pointer events handle touch, pen and mouse without a second synthetic dblclick.
-let lastTap=null, pointerStart=null;
-guide.addEventListener('pointerdown',e=>{
-  if(!e.isPrimary || e.button!==0){lastTap=null;pointerStart=null;return;}
-  pointerStart={id:e.pointerId,x:e.clientX,y:e.clientY,time:performance.now()};
-});
-guide.addEventListener('pointercancel',()=>{pointerStart=null;lastTap=null;});
-guide.addEventListener('pointerleave',()=>{pointerStart=null;lastTap=null;});
-guide.addEventListener('pointerup',e=>{
-  const start=pointerStart;pointerStart=null;
-  if(!start || start.id!==e.pointerId || busy)return;
-  const now=performance.now();
-  if(now-start.time>450 || Math.hypot(e.clientX-start.x,e.clientY-start.y)>24){lastTap=null;return;}
-  e.preventDefault();
-  if(lastTap && now-lastTap.time<=400 && Math.hypot(e.clientX-lastTap.x,e.clientY-lastTap.y)<=40){lastTap=null;captureAndRecognize();}
-  else lastTap={time:now,x:e.clientX,y:e.clientY};
-});
-guide.addEventListener('click',e=>{if(e.detail===0)captureAndRecognize();});
-guide.addEventListener('dblclick',e=>e.preventDefault());
-window.addEventListener('pagehide',()=>{generation++;if(ocrController)ocrController.abort();ocrController=null;busy=false;lastTap=null;pointerStart=null;releaseCamera();});
+// Native button click supports a single touch, mouse click, and keyboard activation.
+guide.addEventListener('click',captureAndRecognize);
+window.addEventListener('pagehide',()=>{generation++;if(ocrController)ocrController.abort();ocrController=null;busy=false;releaseCamera();});
 window.addEventListener('pageshow',e=>{if(e.persisted)startCamera();});
 startCamera();
 </script></body></html>
