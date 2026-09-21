@@ -12,7 +12,7 @@
 *{box-sizing:border-box}body{margin:0;padding:max(12px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom))}main{max-width:680px;margin:auto}
 header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}h1{font-size:clamp(22px,5vw,30px);margin:0;color:#fff}
 button,input{font:inherit}button{cursor:pointer;border:1px solid #587366;border-radius:12px;padding:10px 14px;min-height:44px;background:#243e32;color:#eef7f2}button:disabled{opacity:.55;cursor:default}button:focus-visible{outline:3px solid white;outline-offset:4px}
-#settings-toggle{white-space:nowrap}#connection{border:1px solid #365447;border-radius:16px;padding:16px;margin-bottom:18px}label{display:block;margin:10px 0 6px}input{width:100%;padding:12px;background:#0b1711;color:white;border:1px solid #587366;border-radius:8px}#check{margin-top:12px}.note{font-size:13px;color:#aec5b9;line-height:1.7}
+#settings-toggle{white-space:nowrap}#connection{border:1px solid #365447;border-radius:16px;padding:18px;width:calc(100% - 32px);max-width:480px;max-height:85dvh;overflow:auto;background:#101b19;color:#eef7f2}#connection::backdrop{background:#0009}.dialog-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.dialog-head h2{margin:0;font-size:20px;color:#fff}label{display:block;margin:10px 0 6px}input{width:100%;padding:12px;background:#0b1711;color:white;border:1px solid #587366;border-radius:8px}#check{margin-top:12px}.note{font-size:13px;color:#aec5b9;line-height:1.7}
 .preview{position:relative;width:100%;aspect-ratio:19/9;background:#060c0a;border:1px solid #354b42;border-radius:18px;overflow:hidden}video{display:block;width:100%;height:100%;object-fit:cover}
 .guide{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:88%;padding:0;border:0;border-radius:10px;min-height:0;background:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 .guide svg{display:block;width:100%;height:auto;overflow:visible;box-shadow:0 0 0 999px #0003;border-radius:10px;pointer-events:none}.guide[aria-disabled="true"]{cursor:wait}.preview[data-busy="true"] .guide rect{stroke:#ffd783}
@@ -22,12 +22,12 @@ button,input{font:inherit}button{cursor:pointer;border:1px solid #587366;border-
 </style>
 </head><body><main>
 <header><h1>路亞車牌辨識</h1><button id="settings-toggle" aria-expanded="false" aria-controls="connection" type="button">⚙ 設定</button></header>
-<section id="connection" hidden aria-label="連線設定">
+<dialog id="connection" aria-labelledby="connection-title"><div class="dialog-head"><h2 id="connection-title">連線設定</h2><button id="close-settings" type="button" aria-label="關閉設定">關閉</button></div>
 <label for="endpoint">電腦連線網址</label><input id="endpoint" type="url" placeholder="https://…trycloudflare.com" autocapitalize="none" spellcheck="false" autocomplete="off">
 <label for="key">Connection Key／連線金鑰</label><input id="key" type="password" autocomplete="off" placeholder="貼上電腦顯示的連線金鑰">
 <button id="check" type="button">測試連線</button><p id="connection-status" role="status" class="note">尚未測試。</p>
 <button id="forget-settings" type="button">清除記住的設定</button><p id="storage-status" class="note" role="status">網址與金鑰會自動記在這支手機的瀏覽器；請使用自己的手機。</p>
-</section>
+</dialog>
 <section class="preview" aria-label="相機即時預覽">
 <video id="video" autoplay muted playsinline aria-label="相機即時畫面"></video>
 <button id="guide" class="guide" type="button" aria-label="點一下綠框辨識車牌；鍵盤可按 Enter 或空白鍵" aria-disabled="true">
@@ -44,8 +44,21 @@ const $ = id => document.getElementById(id);
 const video=$('video'), guide=$('guide'), status=$('status');
 let stream=null, starting=false, busy=false, requestId=0, generation=0, ocrController=null;
 function message(text,kind='info'){status.textContent=text;status.dataset.kind=kind;}
-function openSettings(open){$('connection').hidden=!open;$('settings-toggle').setAttribute('aria-expanded',String(open));}
-$('settings-toggle').addEventListener('click',()=>openSettings($('connection').hidden));
+let connectionReady=false, healthGeneration=0, healthController=null;
+function openSettings(open){
+  const dialog=$('connection');
+  if(open && !dialog.open)dialog.showModal();
+  if(!open && dialog.open)dialog.close();
+  $('settings-toggle').setAttribute('aria-expanded',String(open));
+}
+$('settings-toggle').addEventListener('click',()=>openSettings(true));
+$('close-settings').addEventListener('click',()=>openSettings(false));
+$('connection').addEventListener('close',()=>$('settings-toggle').setAttribute('aria-expanded','false'));
+function invalidateConnection(){
+  connectionReady=false;healthGeneration++;
+  if(healthController)healthController.abort();healthController=null;
+  $('check').disabled=false;syncGuide();
+}
 const storageKey='luya-plate-connection-v1';
 function saveSettings(){
   try{
@@ -63,17 +76,17 @@ function restoreSettings(){
   }catch(_){$('storage-status').textContent='無法讀取記住的設定，請重新填寫。';}
 }
 for(const id of ['endpoint','key'])$(id).addEventListener('input',()=>{
-  saveSettings();$('connection-status').textContent='設定已變更，尚未測試。';
+  invalidateConnection();saveSettings();$('connection-status').textContent='設定已變更，請測試連線。';message('連線尚未測試');
 });
 $('forget-settings').addEventListener('click',()=>{
   try{
-    localStorage.removeItem(storageKey);
+    localStorage.removeItem(storageKey);invalidateConnection();message('請填入連線設定');
     $('endpoint').value='';$('key').value='';
     $('storage-status').textContent='已清除記住的網址與金鑰。';$('connection-status').textContent='尚未設定。';
   }catch(_){$('storage-status').textContent='無法清除，請從瀏覽器的網站設定清除本站資料。';}
 });
 restoreSettings();
-function syncGuide(){guide.setAttribute('aria-disabled',String(busy || !stream));document.querySelector('.preview').dataset.busy=String(busy);}
+function syncGuide(){guide.setAttribute('aria-disabled',String(busy || !stream || !connectionReady));document.querySelector('.preview').dataset.busy=String(busy);}
   function connectionSettings() {
     const url = new URL(document.getElementById('endpoint').value.trim());
     if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))) {
@@ -97,18 +110,31 @@ function syncGuide(){guide.setAttribute('aria-disabled',String(busy || !stream))
     if (!response.ok) throw new Error(data.error || '服務暫時無法使用。');
     return data;
   }
-  document.getElementById('check').addEventListener('click', async () => {
-    const label = document.getElementById('connection-status');
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    document.getElementById('check').disabled = true;
-    label.textContent = '正在測試…';
-    try {
-      await requestService('/health', { signal: controller.signal });
-      label.textContent = '已連接電腦，可以拍攝並辨識車牌。';
-    } catch (e) { label.textContent = e.name === 'AbortError' ? '連線逾時，請檢查電腦服務與網址。' : (e instanceof TypeError ? '無法連線，請檢查電腦服務、網路與網址。' : e.message); }
-    finally { clearTimeout(timeout); document.getElementById('check').disabled = false; }
-  });
+async function testConnection(){
+    if(healthController || busy)return;
+    connectionReady=false;syncGuide();
+    const id=++healthGeneration;
+    const controller=new AbortController();healthController=controller;
+    const timeout=setTimeout(()=>controller.abort(),15000);
+    $('check').disabled=true;$('connection-status').textContent='正在測試…';message('正在測試連線…');
+    try{
+      const data=await requestService('/health',{signal:controller.signal});
+      if(id!==healthGeneration)return;
+      if(!data || data.ok!==true)throw new Error('服務回應不正確，請確認連線網址。');
+      connectionReady=true;saveSettings();
+      $('connection-status').textContent='連線測試成功。';
+      openSettings(false);
+      message(stream && $('camera-overlay').hidden?'已就緒':'連線成功，請開啟相機');
+    }catch(e){
+      if(id!==healthGeneration)return;
+      $('connection-status').textContent=e.name==='AbortError'?'連線逾時，請檢查電腦服務與網址。':e instanceof TypeError?'無法連線，請檢查電腦服務、網路與網址。':e.message;
+      message('連線失敗，請重新設定','error');openSettings(true);
+    }finally{
+      clearTimeout(timeout);
+      if(id===healthGeneration){healthController=null;$('check').disabled=false;syncGuide();}
+    }
+}
+$('check').addEventListener('click',testConnection);
   function errorText(error) {
     switch (error.name) {
       case 'NotAllowedError':
@@ -161,7 +187,7 @@ async function startCamera(){
     track.addEventListener('ended',()=>{if(stream!==acquired)return;releaseCamera();message('相機已中斷或權限已被撤回。請確認權限後點相機區重試。','error');});
     await video.play();if(id!==requestId)return;
     $('camera-overlay').hidden=true;syncGuide();
-    message($('endpoint').value.trim() && $('key').value.trim() ? '已就緒' : '相機已就緒。首次使用請在「設定」填入連線網址與金鑰。');
+    await testConnection();
   }catch(error){if(id!==requestId)return;releaseCamera();message(errorText(error),'error');}
   finally{if(id===requestId)starting=false;}
 }
@@ -179,7 +205,8 @@ function renderDatabase(data){
   else{$('database-status').textContent='車牌辨識成功／等待資料庫查詢（尚未接入）';}
 }
 async function captureAndRecognize(){
-  if(busy)return;
+  if(busy || healthController)return;
+  if(!connectionReady){openSettings(true);message('請先測試連線');return;}
   if(!stream || video.readyState<2 || !video.videoWidth || !video.videoHeight){message('相機畫面尚未準備好，請稍候再試。','error');return;}
   try{connectionSettings();}catch(e){openSettings(true);message(e instanceof TypeError?'請在設定填入有效的電腦連線網址。':e.message,'error');return;}
   busy=true;syncGuide();const id=++generation;
@@ -214,7 +241,7 @@ async function captureAndRecognize(){
 }
 // Native button click supports a single touch, mouse click, and keyboard activation.
 guide.addEventListener('click',captureAndRecognize);
-window.addEventListener('pagehide',()=>{generation++;if(ocrController)ocrController.abort();ocrController=null;busy=false;releaseCamera();});
+window.addEventListener('pagehide',()=>{invalidateConnection();generation++;if(ocrController)ocrController.abort();ocrController=null;busy=false;releaseCamera();});
 window.addEventListener('pageshow',e=>{if(e.persisted)startCamera();});
 startCamera();
 </script></body></html>
