@@ -1,131 +1,51 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#101b19">
-  <title>LUYA 車牌辨識</title>
-  <link rel="icon" type="image/png" href="./favicon.png?v=2">
-  <link rel="apple-touch-icon" href="./favicon.png?v=2">
-  <style>
-    :root { color-scheme: dark; font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif; background: #101b19; color: #eef7f2; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; padding: max(24px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom)); }
-    main { width: 100%; max-width: 760px; margin: auto; }
-    .eyebrow { color: #81d9b3; font-size: 12px; letter-spacing: .16em; font-weight: 700; }
-    h1 { font-size: clamp(26px, 6vw, 36px); margin: 10px 0; }
-    .intro { color: #b5c9c0; line-height: 1.7; margin: 0 0 24px; }
-    .preview { position: relative; width: 100%; height: 58vh; min-height: 270px; max-height: 560px; background: #060c0a; border: 1px solid #354b42; border-radius: 20px; overflow: hidden; }
-    video { display: block; width: 100%; height: 100%; object-fit: cover; }
-    .placeholder { position: absolute; top: 19%; left: 12px; right: 12px; text-align: center; color: #b5c9c0; }
-    /* Taiwan newer automobile plate: 380 x 160 mm (19:8).
-       SVG viewBox preserves the ratio on older mobile Chrome as well. */
-    .guide { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 88%; max-width: 520px; pointer-events: none; }
-    .guide svg { display: block; width: 100%; height: auto; overflow: visible; border-radius: 12px; box-shadow: 0 0 0 999px #0003; }
-    .guide-label { position: absolute; top: 100%; margin-top: 16px; width: 100%; text-align: center; padding: 0 12px; color: #c0fbdc; font-size: 14px; text-shadow: 0 1px 5px #000; }
-    .badge { position: absolute; top: 16px; left: 16px; background: #101b19dc; border: 1px solid #486354; padding: 6px 10px; border-radius: 20px; font-size: 12px; }
-    .actions { display: flex; gap: 12px; margin-top: 20px; }
-    button { min-height: 52px; border-radius: 12px; padding: 12px 18px; font: inherit; font-weight: 700; cursor: pointer; }
-    #start { flex: 1; background: #80efb8; color: #082719; border: 1px solid #80efb8; }
-    #stop { background: transparent; color: #d5e7dd; border: 1px solid #587366; }
-    #capture { width: 100%; margin-top: 12px; background: #80efb8; color: #082719; border: 0; }
-    #recognize { width: 100%; margin-top: 16px; background: #80efb8; color: #082719; border: 0; }
-    details { padding: 16px; border: 1px solid #365447; border-radius: 12px; margin-bottom: 18px; }
-    label { display: block; margin: 12px 0 6px; }
-    input { width: 100%; padding: 12px; border: 1px solid #587366; border-radius: 8px; background: #0b1711; color: #fff; font: inherit; }
-    #plate { font-size: 28px; text-transform: uppercase; }
-    #check { margin-top: 12px; }
-    #result { margin-top: 24px; padding: 16px; border: 1px solid #365447; border-radius: 16px; }
-    #result h2 { margin-top: 0; font-size: 20px; }
-    #photo { display: block; width: 100%; height: auto; border-radius: 8px; }
-    #retake, #download { flex: 1; background: #243e32; color: #eef7f2; border: 1px solid #587366; }
-    #download { text-align: center; text-decoration: none; padding: 14px 12px; border-radius: 12px; }
-    button:disabled { opacity: .45; cursor: default; }
-    button:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
-    .status { padding: 15px 16px; border: 1px solid #365447; border-radius: 12px; margin-top: 16px; line-height: 1.7; overflow-wrap: anywhere; background: #192b23; }
-    .status[data-kind="error"] { color: #ffe0d6; background: #392622; border-color: #9c6150; }
-    .note { color: #a3b9ae; font-size: 13px; line-height: 1.8; margin-top: 18px; }
-    [hidden] { display: none !important; }
-    @media (orientation: landscape) and (max-height: 550px) { .preview { height: 65vh; min-height: 220px; } .guide { max-width: min(520px, 100vh); } }
-  </style>
-</head>
-<body>
-<main>
-  <div class="eyebrow">LUYA · STEP 3 · 車牌辨識</div>
-  <h1>LUYA 車牌辨識</h1>
-  <p class="intro">開啟後鏡頭，將車牌置於中央綠框內。</p>
-  <details id="connection">
-    <summary>連接電腦辨識服務（首次使用請設定）</summary>
-    <label for="endpoint">電腦連線網址</label>
-    <input id="endpoint" type="url" placeholder="https://…trycloudflare.com" autocapitalize="none" spellcheck="false">
-    <label for="key">連線金鑰</label>
-    <input id="key" type="password" autocomplete="off" placeholder="貼上電腦顯示的連線金鑰">
-    <button id="check" type="button">測試連線</button>
-    <p id="connection-status" role="status" class="note">尚未測試。金鑰只留在本分頁記憶體，重新整理後須重填。</p>
-  </details>
-  <section class="preview" aria-label="相機即時預覽與車牌對準框">
-    <video id="video" autoplay muted playsinline aria-label="相機即時畫面"></video>
-    <div id="placeholder" class="placeholder">按下「開啟相機」開始預覽</div>
-    <div class="guide" aria-hidden="true">
-      <svg viewBox="0 0 380 160" width="380" height="160" focusable="false">
-        <rect x="0" y="0" width="380" height="160" rx="10" fill="none" stroke="#4aee9a" stroke-width="3" vector-effect="non-scaling-stroke" />
-      </svg>
-      <div class="guide-label">車牌對準此處</div>
-    </div>
-    <div id="badge" class="badge">相機未開啟</div>
-  </section>
-  <div class="actions">
-    <button id="start" type="button">開啟相機</button>
-    <button id="stop" type="button" disabled>關閉相機</button>
-  </div>
-  <button id="capture" type="button" disabled>拍攝車牌</button>
-  <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true">尚未開啟相機。請按上方按鈕，並在瀏覽器詢問時允許使用相機。</div>
-  <section id="result" hidden aria-labelledby="result-title">
-    <h2 id="result-title">車牌照片</h2>
-    <img id="photo" alt="剛拍攝的綠框內車牌照片">
-    <p id="photo-info" class="note"></p>
-    <button id="recognize" type="button">辨識車牌</button>
-    <p id="ocr-status" role="status" aria-live="polite"></p>
-    <div id="plate-result" hidden>
-      <label for="plate">辨識結果（請核對，可手動修改）</label>
-      <input id="plate" maxlength="20" autocomplete="off" spellcheck="false">
-    </div>
-    <div class="actions">
-      <button id="retake" type="button">重拍</button>
-      <a id="download" download="luya-plate.png">下載照片</a>
-    </div>
-    <p class="note">請確認英文字母與數字清楚、車牌完整。若下載未開始，可長按照片儲存。</p>
-  </section>
-  <p class="note">只有按「辨識車牌」才會將照片經 Cloudflare 加密連線送至你的電腦處理。辨識服務不儲存照片，不使用雲端 OCR。此版本測試三個英文字母加四位數字的車牌，結果請人工核對。</p>
-  <noscript><p>請啟用瀏覽器 JavaScript，才能開啟相機。</p></noscript>
-</main>
-<script>
-  'use strict';
-  const video = document.getElementById('video');
-  const start = document.getElementById('start');
-  const stop = document.getElementById('stop');
-  const status = document.getElementById('status');
-  const badge = document.getElementById('badge');
-  const placeholder = document.getElementById('placeholder');
-  const capture = document.getElementById('capture');
-  const result = document.getElementById('result');
-  const photo = document.getElementById('photo');
-  const download = document.getElementById('download');
-  const recognize = document.getElementById('recognize');
-  const ocrStatus = document.getElementById('ocr-status');
-  const plateResult = document.getElementById('plate-result');
-  const plate = document.getElementById('plate');
-  let ocrGeneration = 0;
-  let ocrController = null;
-  function resetRecognition() {
-    ocrGeneration++;
-    if (ocrController) ocrController.abort();
-    recognize.disabled = false;
-    recognize.textContent = '辨識車牌';
-    ocrStatus.textContent = '';
-    plate.value = '';
-    plateResult.hidden = true;
-  }
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101b19">
+<title>LUYA 車牌辨識</title>
+<link rel="icon" type="image/png" href="./favicon.png?v=2">
+<link rel="apple-touch-icon" href="./favicon.png?v=2">
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,"Noto Sans TC",sans-serif;background:#101b19;color:#eef7f2}
+*{box-sizing:border-box}body{margin:0;padding:max(20px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}main{max-width:680px;margin:auto}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}h1{font-size:clamp(22px,5vw,30px);margin:0}.brand{font-size:11px;letter-spacing:.18em;color:#81d9b3;margin-bottom:6px}
+button,input{font:inherit}button{cursor:pointer;border:1px solid #587366;border-radius:12px;padding:10px 14px;min-height:44px;background:#243e32;color:#eef7f2}button:disabled{opacity:.55;cursor:default}button:focus-visible{outline:3px solid white;outline-offset:4px}
+#settings-toggle{white-space:nowrap}#connection{border:1px solid #365447;border-radius:16px;padding:16px;margin-bottom:18px}label{display:block;margin:10px 0 6px}input{width:100%;padding:12px;background:#0b1711;color:white;border:1px solid #587366;border-radius:8px}#check{margin-top:12px}.note{font-size:13px;color:#aec5b9;line-height:1.7}
+.preview{position:relative;width:100%;aspect-ratio:19/9;background:#060c0a;border:1px solid #354b42;border-radius:18px;overflow:hidden}video{display:block;width:100%;height:100%;object-fit:cover}
+.guide{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:88%;padding:0;border:0;border-radius:10px;min-height:0;background:transparent;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+.guide svg{display:block;width:100%;height:auto;overflow:visible;box-shadow:0 0 0 999px #0003;border-radius:10px;pointer-events:none}.guide[aria-disabled="true"]{cursor:wait}.preview[data-busy="true"] .guide rect{stroke:#ffd783}
+.camera-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#101b19eb;padding:16px;text-align:center;color:#b5c9c0}
+.hint{text-align:center;color:#a9d9c0;font-size:14px;margin:12px 0}.status{padding:14px 16px;border:1px solid #365447;border-radius:12px;line-height:1.65;background:#192b23;overflow-wrap:anywhere}.status[data-kind="error"]{color:#ffe0d6;background:#392622;border-color:#9c6150}
+#result{margin-top:16px;padding:20px;border:1px solid #365447;border-radius:16px}h2{font-size:14px;font-weight:500;color:#aec5b9;margin:0 0 8px}#plate{font-size:clamp(32px,9vw,48px);font-weight:750;letter-spacing:.06em;overflow-wrap:anywhere}#database-status{margin:14px 0 0;color:#b5c9c0}#students{padding-left:20px;line-height:1.8}[hidden]{display:none!important}
+</style>
+</head><body><main>
+<header><div><div class="brand">LUYA · 車牌辨識</div><h1>LUYA 車牌辨識</h1></div><button id="settings-toggle" aria-expanded="false" aria-controls="connection" type="button">⚙ 設定</button></header>
+<section id="connection" hidden aria-label="連線設定">
+<label for="endpoint">電腦連線網址</label><input id="endpoint" type="url" placeholder="https://…trycloudflare.com" autocapitalize="none" spellcheck="false" autocomplete="off">
+<label for="key">Connection Key／連線金鑰</label><input id="key" type="password" autocomplete="off" placeholder="貼上電腦顯示的連線金鑰">
+<button id="check" type="button">測試連線</button><p id="connection-status" role="status" class="note">尚未測試。金鑰只留在本分頁記憶體，重新整理後須重填。</p>
+</section>
+<section class="preview" aria-label="相機即時預覽">
+<video id="video" autoplay muted playsinline aria-label="相機即時畫面"></video>
+<button id="guide" class="guide" type="button" aria-label="雙點綠框辨識車牌；鍵盤可按 Enter 或空白鍵" aria-disabled="true">
+<svg viewBox="0 0 380 160" width="380" height="160" aria-hidden="true"><rect x="0" y="0" width="380" height="160" rx="10" fill="none" stroke="#4aee9a" stroke-width="3" vector-effect="non-scaling-stroke"/></svg></button>
+<div id="camera-overlay" class="camera-overlay"><span id="camera-label">正在開啟相機…</span><button id="retry" type="button" hidden>點一下開啟相機</button></div>
+</section>
+<p class="hint">雙點綠框即可辨識</p>
+<div id="status" class="status" role="status" aria-live="polite" aria-atomic="true">正在啟動相機…</div>
+<section id="result" aria-label="辨識與資料庫查詢結果" aria-live="polite" aria-atomic="true"><h2>車牌辨識結果</h2><div id="plate">—</div><p id="database-status">尚未辨識車牌</p><ul id="students" hidden></ul></section>
+<noscript><p>請啟用瀏覽器 JavaScript，才能開啟相機。</p></noscript>
+</main><script>
+'use strict';
+const $ = id => document.getElementById(id);
+const video=$('video'), guide=$('guide'), status=$('status');
+let stream=null, starting=false, busy=false, requestId=0, generation=0, ocrController=null;
+function message(text,kind='info'){status.textContent=text;status.dataset.kind=kind;}
+function openSettings(open){$('connection').hidden=!open;$('settings-toggle').setAttribute('aria-expanded',String(open));}
+$('settings-toggle').addEventListener('click',()=>openSettings($('connection').hidden));
+function syncGuide(){guide.setAttribute('aria-disabled',String(busy || !stream));document.querySelector('.preview').dataset.busy=String(busy);}
   function connectionSettings() {
     const url = new URL(document.getElementById('endpoint').value.trim());
     if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))) {
@@ -161,57 +81,11 @@
     } catch (e) { label.textContent = e.name === 'AbortError' ? '連線逾時，請檢查電腦服務與網址。' : (e instanceof TypeError ? '無法連線，請檢查電腦服務、網路與網址。' : e.message); }
     finally { clearTimeout(timeout); document.getElementById('check').disabled = false; }
   });
-  recognize.addEventListener('click', async () => {
-    const image = photo.getAttribute('src');
-    if (!image) return;
-    resetRecognition();
-    const generation = ocrGeneration;
-    ocrController = new AbortController();
-    const controller = ocrController;
-    const timeout = setTimeout(() => controller.abort(), 45000);
-    recognize.disabled = true;
-    recognize.textContent = '辨識中…';
-    ocrStatus.textContent = '照片正在傳送至電腦辨識，請稍候。';
-    try {
-      const data = await requestService('/recognize', { method: 'POST', body: JSON.stringify({image}), signal: controller.signal });
-      if (generation !== ocrGeneration) return;
-      plate.value = data.plate || '';
-      plateResult.hidden = false;
-      ocrStatus.textContent = data.plate ? '辨識完成（電腦處理 ' + data.seconds + ' 秒）。請核對下方號碼。' : '未取得符合格式的車牌。可手動輸入或靠近、對正車牌後重拍。';
-    } catch (e) {
-      if (generation !== ocrGeneration) return;
-      ocrStatus.textContent = e.name === 'AbortError' ? '辨識逾時，請確認電腦連線後重試。' : (e instanceof TypeError ? '無法連線，請檢查電腦服務與連線設定。' : e.message);
-    } finally {
-      clearTimeout(timeout);
-      if (generation === ocrGeneration) { recognize.disabled = false; recognize.textContent = '辨識車牌'; }
-    }
-  });
-  let stream = null;
-  let requestId = 0;
-
-  function message(text, kind = 'info') {
-    status.textContent = text;
-    status.dataset.kind = kind;
-  }
-
-  function releaseCamera() {
-    requestId++;
-    if (stream) stream.getTracks().forEach(track => track.stop());
-    stream = null;
-    video.srcObject = null;
-    start.disabled = false;
-    start.textContent = '開啟相機';
-    stop.disabled = true;
-    capture.disabled = true;
-    placeholder.hidden = false;
-    badge.textContent = '相機未開啟';
-  }
-
   function errorText(error) {
     switch (error.name) {
       case 'NotAllowedError':
       case 'PermissionDeniedError':
-        return '無法取得相機權限。請在 Chrome 網址列的網站設定中允許相機；若仍無法開啟，請檢查手機設定中 Chrome 的相機權限，再按「開啟相機」。';
+        return '無法取得相機權限。請在 Chrome 網址列的網站設定中允許相機；若仍無法開啟，請檢查手機設定中 Chrome 的相機權限，再點相機區重試。';
       case 'NotFoundError':
       case 'DevicesNotFoundError':
         return '找不到可使用的相機。請確認裝置具備相機，並使用手機 Chrome 開啟此網頁。';
@@ -223,67 +97,12 @@
       case 'SecurityError':
         return '瀏覽器安全設定禁止使用相機。請直接以 Chrome 開啟 GitHub Pages 的 HTTPS 網址，並檢查網站權限。';
       case 'AbortError':
-        return '相機啟動被中斷，請按「開啟相機」重試。';
+        return '相機啟動被中斷，請點相機區重試。';
       default:
         return '無法開啟相機（' + (error.name || '未知錯誤') + '）。請重新整理頁面，或關閉其他相機程式後重試。';
     }
   }
 
-  start.addEventListener('click', async () => {
-    if (!window.isSecureContext) {
-      message('相機需要安全連線。請使用 GitHub Pages 的 HTTPS 網址開啟此頁面。', 'error');
-      return;
-    }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      message('此瀏覽器無法使用相機功能。請改用手機 Chrome，並確認瀏覽器已更新。', 'error');
-      return;
-    }
-    const currentRequest = ++requestId;
-    start.disabled = true;
-    start.textContent = '正在開啟…';
-    stop.disabled = false;
-    badge.textContent = '等待相機';
-    message('正在請求相機權限。請在瀏覽器的提示中選擇「允許」；若未出現提示，請檢查網站的相機權限。');
-    try {
-      const acquired = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-      });
-      if (currentRequest !== requestId) {
-        acquired.getTracks().forEach(track => track.stop());
-        return;
-      }
-      stream = acquired;
-      video.srcObject = acquired;
-      const track = acquired.getVideoTracks()[0];
-      track.addEventListener('ended', () => {
-        if (stream !== acquired) return;
-        releaseCamera();
-        message('相機已中斷或權限已被撤回。請確認相機權限後重新開啟。', 'error');
-      });
-      await video.play();
-      if (currentRequest !== requestId) return;
-      placeholder.hidden = true;
-      capture.disabled = false;
-      badge.textContent = '即時預覽';
-      start.textContent = '相機已開啟';
-      const facing = track.getSettings ? track.getSettings().facingMode : null;
-      message(facing === 'environment'
-        ? '後鏡頭已開啟。請將車牌置於綠框內，保持手機穩定。'
-        : '相機已開啟，已優先要求後鏡頭。請確認目前畫面朝向車牌，並將車牌置於綠框內。');
-    } catch (error) {
-      if (currentRequest !== requestId) return;
-      releaseCamera();
-      message(errorText(error), 'error');
-    }
-  });
-
-  stop.addEventListener('click', () => {
-    releaseCamera();
-    message('相機已關閉。需要預覽時，可再次按「開啟相機」。');
-  });
-
-  // Map the visible guide back to the source video, accounting for object-fit: cover.
   function cropBounds(sourceWidth, sourceHeight, viewport, guide) {
     const scale = Math.max(viewport.width / sourceWidth, viewport.height / sourceHeight);
     const offsetX = (sourceWidth * scale - viewport.width) / 2;
@@ -293,53 +112,97 @@
     return { x, y, width: Math.min(guide.width / scale, sourceWidth - x), height: Math.min(guide.height / scale, sourceHeight - y) };
   }
 
-  capture.addEventListener('click', () => {
-    if (!stream || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
-      message('相機畫面尚未準備好，請稍候再拍攝。', 'error');
-      return;
-    }
-    try {
-      const bounds = cropBounds(video.videoWidth, video.videoHeight,
-        video.getBoundingClientRect(), document.querySelector('.guide svg').getBoundingClientRect());
-      if (bounds.width <= 0 || bounds.height <= 0) throw new Error('Invalid crop');
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(bounds.width));
-      canvas.height = Math.max(1, Math.round(bounds.height));
-      canvas.getContext('2d').drawImage(video, bounds.x, bounds.y, bounds.width, bounds.height,
-        0, 0, canvas.width, canvas.height);
-      const image = canvas.toDataURL('image/png');
-      resetRecognition();
-      photo.src = image;
-      download.href = image;
-      download.download = 'luya-plate-' + new Date().toISOString().replace(/[:.]/g, '-') + '.png';
-      document.getElementById('photo-info').textContent = '已擷取綠框範圍 · ' + canvas.width + ' × ' + canvas.height + ' 像素。尚未進行文字辨識。';
-      result.hidden = false;
-      message('拍攝完成！請檢查下方照片，可下載保存或重拍。');
-      result.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } catch (error) {
-      message('無法擷取照片，請確認相機畫面正常後重試。', 'error');
-    }
-  });
 
-  document.getElementById('retake').addEventListener('click', () => {
-    resetRecognition();
-    result.hidden = true;
-    photo.removeAttribute('src');
-    download.removeAttribute('href');
-    document.querySelector('.preview').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    if (stream) {
-      message('請重新對準車牌，再按「拍攝車牌」。');
-      capture.focus({ preventScroll: true });
-    } else {
-      start.click();
-    }
-  });
-  // Leaving the page releases the camera, including pending permission requests.
-  window.addEventListener('pagehide', () => {
-    resetRecognition();
-    releaseCamera();
-    message('相機已關閉。請按「開啟相機」重新開始預覽。');
-  });
-</script>
-</body>
-</html>
+function releaseCamera(){
+  requestId++; starting=false;
+  if(stream) stream.getTracks().forEach(track=>track.stop());
+  stream=null;video.srcObject=null;syncGuide();
+  $('camera-overlay').hidden=false;$('camera-label').textContent='相機尚未開啟';$('retry').hidden=false;
+}
+async function startCamera(){
+  if(starting || stream) return;
+  if(!window.isSecureContext){releaseCamera();message('相機需要安全連線。請使用 GitHub Pages 的 HTTPS 網址開啟此頁面。','error');return;}
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){releaseCamera();message('此瀏覽器無法使用相機功能。請改用手機 Chrome，並確認瀏覽器已更新。','error');return;}
+  const id=++requestId;starting=true;$('retry').hidden=true;$('camera-label').textContent='正在開啟相機…';
+  message('正在啟動相機；若出現權限提示，請選擇允許。');
+  try{
+    const acquired=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}});
+    if(id!==requestId){acquired.getTracks().forEach(t=>t.stop());return;}
+    stream=acquired;video.srcObject=acquired;
+    const track=acquired.getVideoTracks()[0];
+    track.addEventListener('ended',()=>{if(stream!==acquired)return;releaseCamera();message('相機已中斷或權限已被撤回。請確認權限後點相機區重試。','error');});
+    await video.play();if(id!==requestId)return;
+    $('camera-overlay').hidden=true;syncGuide();
+    message($('endpoint').value.trim() && $('key').value.trim() ? '已就緒' : '相機已就緒。首次使用請在「設定」填入連線網址與金鑰。');
+  }catch(error){if(id!==requestId)return;releaseCamera();message(errorText(error),'error');}
+  finally{if(id===requestId)starting=false;}
+}
+$('retry').addEventListener('click',startCamera);
+
+// Future database adapter: return {status:'found',students:[{name,className}]},
+// {status:'not_found'}, or {status:'pending'}. No database call is made yet.
+async function lookupPlate(plate){return {status:'pending'};}
+function renderDatabase(data){
+  const list=$('students');list.replaceChildren();list.hidden=true;
+  if(data.status==='found' && Array.isArray(data.students) && data.students.length){
+    $('database-status').textContent='辨識成功／已找到學生';
+    for(const student of data.students){const item=document.createElement('li');item.textContent=[student.name,student.className].filter(Boolean).join('　');list.appendChild(item);}list.hidden=false;
+  }else if(data.status==='not_found'){$('database-status').textContent='查無此車牌，請確認車牌或重新辨識。';}
+  else{$('database-status').textContent='車牌辨識成功／等待資料庫查詢（尚未接入）';}
+}
+async function captureAndRecognize(){
+  if(busy)return;
+  if(!stream || video.readyState<2 || !video.videoWidth || !video.videoHeight){message('相機畫面尚未準備好，請稍候再試。','error');return;}
+  try{connectionSettings();}catch(e){openSettings(true);message(e instanceof TypeError?'請在設定填入有效的電腦連線網址。':e.message,'error');return;}
+  busy=true;lastTap=null;syncGuide();const id=++generation;
+  $('plate').textContent='—';$('students').replaceChildren();$('students').hidden=true;$('database-status').textContent='等待車牌辨識';message('辨識中…');
+  const controller=new AbortController();ocrController=controller;
+  const timeout=setTimeout(()=>controller.abort(),45000);
+  let canvas=null, image=null;
+  try{
+    const bounds=cropBounds(video.videoWidth,video.videoHeight,video.getBoundingClientRect(),guide.querySelector('svg').getBoundingClientRect());
+    if(bounds.width<=0 || bounds.height<=0)throw new Error('無法擷取照片，請確認相機畫面正常後重試。');
+    canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bounds.width));canvas.height=Math.max(1,Math.round(bounds.height));
+    const context=canvas.getContext('2d');if(!context)throw new Error('無法擷取相機畫面，請重新整理後再試。');
+    context.drawImage(video,bounds.x,bounds.y,bounds.width,bounds.height,0,0,canvas.width,canvas.height);
+    image=canvas.toDataURL('image/png');
+    const data=await requestService('/recognize',{method:'POST',body:JSON.stringify({image}),signal:controller.signal});
+    clearTimeout(timeout);image=null;canvas.width=canvas.height=0;
+    if(id!==generation)return;
+    const plate=typeof data.plate==='string'?data.plate.trim():'';
+    if(!plate){message('未取得符合格式的車牌，請靠近、對正後再次雙點綠框。','error');$('database-status').textContent='尚無車牌可供查詢';return;}
+    $('plate').textContent=plate;message('車牌辨識成功，請核對號碼。');
+    try{const match=await lookupPlate(plate);if(id===generation)renderDatabase(match);}
+    catch(e){if(id===generation)$('database-status').textContent='車牌辨識成功／資料庫查詢失敗，請稍後再試。';}
+  }catch(e){
+    if(id!==generation)return;
+    message(e.name==='AbortError'?'辨識逾時，請確認電腦連線後重試。':e instanceof TypeError?'無法連線，請檢查電腦服務與連線設定。':e.message,'error');
+    $('database-status').textContent='辨識未完成';
+  }finally{
+    clearTimeout(timeout);image=null;if(canvas)canvas.width=canvas.height=0;
+    if(id===generation){ocrController=null;busy=false;lastTap=null;syncGuide();}
+  }
+}
+// Pointer events handle touch, pen and mouse without a second synthetic dblclick.
+let lastTap=null, pointerStart=null;
+guide.addEventListener('pointerdown',e=>{
+  if(!e.isPrimary || e.button!==0){lastTap=null;pointerStart=null;return;}
+  pointerStart={id:e.pointerId,x:e.clientX,y:e.clientY,time:performance.now()};
+});
+guide.addEventListener('pointercancel',()=>{pointerStart=null;lastTap=null;});
+guide.addEventListener('pointerleave',()=>{pointerStart=null;lastTap=null;});
+guide.addEventListener('pointerup',e=>{
+  const start=pointerStart;pointerStart=null;
+  if(!start || start.id!==e.pointerId || busy)return;
+  const now=performance.now();
+  if(now-start.time>450 || Math.hypot(e.clientX-start.x,e.clientY-start.y)>24){lastTap=null;return;}
+  e.preventDefault();
+  if(lastTap && now-lastTap.time<=400 && Math.hypot(e.clientX-lastTap.x,e.clientY-lastTap.y)<=40){lastTap=null;captureAndRecognize();}
+  else lastTap={time:now,x:e.clientX,y:e.clientY};
+});
+guide.addEventListener('click',e=>{if(e.detail===0)captureAndRecognize();});
+guide.addEventListener('dblclick',e=>e.preventDefault());
+window.addEventListener('pagehide',()=>{generation++;if(ocrController)ocrController.abort();ocrController=null;busy=false;lastTap=null;pointerStart=null;releaseCamera();});
+window.addEventListener('pageshow',e=>{if(e.persisted)startCamera();});
+startCamera();
+</script></body></html>
