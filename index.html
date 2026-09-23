@@ -194,16 +194,14 @@ async function startCamera(){
 }
 $('retry').addEventListener('click',startCamera);
 
-// Future database adapter: return {status:'found',students:[{name,className}]},
-// {status:'not_found'}, or {status:'pending'}. No database call is made yet.
-async function lookupPlate(plate){return {status:'pending'};}
 function renderDatabase(data){
   const list=$('students');list.replaceChildren();list.hidden=true;
   if(data.status==='found' && Array.isArray(data.students) && data.students.length){
     $('database-status').textContent='辨識成功／已找到學生';
-    for(const student of data.students){const item=document.createElement('li');item.textContent=[student.name,student.className].filter(Boolean).join('　');list.appendChild(item);}list.hidden=false;
+    for(const student of data.students){const item=document.createElement('li');item.textContent=[student.name,student.englishName].filter(Boolean).join('　');list.appendChild(item);}list.hidden=false;
   }else if(data.status==='not_found'){$('database-status').textContent='查無此車牌，請確認車牌或重新辨識。';}
-  else{$('database-status').textContent='車牌辨識成功／等待資料庫查詢（尚未接入）';}
+  else if(data.status==='error'){$('database-status').textContent=data.message || '無法讀取學生名單';}
+  else{$('database-status').textContent='請更新電腦端 server.py，才能查詢學生名單。';}
 }
 async function captureAndRecognize(){
   if(busy || healthController)return;
@@ -228,8 +226,7 @@ async function captureAndRecognize(){
     const plate=typeof data.plate==='string'?data.plate.trim():'';
     if(!plate){message('辨識不成功，請重試','error');$('database-status').textContent='';return;}
     $('plate').textContent=plate;message('車牌辨識成功，請核對號碼。');
-    try{const match=await lookupPlate(plate);if(id===generation)renderDatabase(match);}
-    catch(e){if(id===generation)$('database-status').textContent='車牌辨識成功／資料庫查詢失敗，請稍後再試。';}
+    renderDatabase(data.lookup || {status:'unavailable'});
   }catch(e){
     if(id!==generation)return;
     message('辨識不成功，請重試','error');
