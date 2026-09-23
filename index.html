@@ -29,18 +29,7 @@ button,input{font:inherit}button{cursor:pointer;border:1px solid #587366;border-
 <button id="check" type="button">測試連線</button><p id="connection-status" role="status" class="note">尚未測試。</p>
 <button id="forget-settings" type="button">清除記住的設定</button><p id="storage-status" class="note" role="status">網址與金鑰會自動記在這支手機的瀏覽器；請使用自己的手機。</p>
 <details><summary>最近一次辨識診斷</summary><p id="recognition-diagnostics" class="note" style="white-space:pre-wrap;overflow-wrap:anywhere">尚未辨識</p></details>
-<details id="speed-panel"><summary>速度最佳化</summary>
-<p id="speed-active" class="note">請先測試連線取得目前模式。</p>
-<p class="note">先填入眼前車牌的正確號碼，再按「準備測速」。關閉設定後點綠框一次，即用同一張照片測試 CPU 預設、2、4、8 執行緒與三種尺寸。每組暖機後測 3 次，約需數分鐘，請保持網頁開啟。</p>
-<label for="speed-expected">正確車牌號碼</label><input id="speed-expected" placeholder="ABC-1234" autocapitalize="characters" spellcheck="false">
-<button id="speed-start" type="button">準備測速</button> <button id="speed-cancel" type="button" hidden>停止測速</button>
-<p id="speed-progress" class="note" role="status">建議至少測 3 張不同車牌或拍攝條件，再套用最快且每次都正確的模式。</p>
-<div style="overflow-x:auto"><table id="speed-table" style="width:100%;font-size:13px;text-align:left"><thead><tr><th>模式</th><th>正確次數</th><th>OCR 中位秒數</th><th>本張結果／尺寸</th></tr></thead><tbody id="speed-rows"></tbody></table></div>
-<p id="speed-recommendation" class="note"></p>
-<button id="speed-apply" type="button" disabled>套用建議模式</button> <button id="speed-reset" type="button">還原預設模式</button> <button id="speed-clear" type="button">清除測試結果</button>
-<p class="note">排名依相同圖片的 OCR 耗時，不包含暖機、模型載入與網路。只代表已測樣本；不自動安裝 GPU 套件。照片只暫存在記憶體。</p>
-</details>
-
+<p id="gpu-status" class="note" role="status">GPU 模式尚未確認</p>
 </dialog>
 <section class="preview" aria-label="相機即時預覽">
 <video id="video" autoplay muted playsinline aria-label="相機即時畫面"></video>
@@ -69,7 +58,7 @@ $('settings-toggle').addEventListener('click',()=>openSettings(true));
 $('close-settings').addEventListener('click',()=>openSettings(false));
 $('connection').addEventListener('close',()=>$('settings-toggle').setAttribute('aria-expanded','false'));
 function invalidateConnection(){
-  connectionReady=false;healthGeneration++;speedArmed=false;speedSamples=[];speedRecommended=null;speedInfo=null;$('speed-apply').disabled=true;
+  connectionReady=false;healthGeneration++;$('gpu-status').textContent='GPU 模式尚未確認';
   if(healthController)healthController.abort();healthController=null;
   $('check').disabled=false;syncGuide();
 }
@@ -126,7 +115,7 @@ function syncGuide(){guide.setAttribute('aria-disabled',String(busy || !stream |
   }
 async function testConnection(){
     if(healthController || busy)return;
-    connectionReady=false;syncGuide();
+      connectionReady=false;$('gpu-status').textContent='GPU 模式尚未確認';syncGuide();
     const id=++healthGeneration;
     const controller=new AbortController();healthController=controller;
     const timeout=setTimeout(()=>controller.abort(),15000);
@@ -135,7 +124,10 @@ async function testConnection(){
       const data=await requestService('/health',{signal:controller.signal});
       if(id!==healthGeneration)return;
       if(!data || data.ok!==true)throw new Error('服務回應不正確，請確認連線網址。');
-      connectionReady=true;saveSettings();receiveSpeed(data.speed);
+      const gpu=data.engine && data.engine.providers && data.engine.providers.length===3 && data.engine.providers.every(p=>p==='CUDAExecutionProvider');
+      if(!gpu)throw new Error('目前連到 CPU 或舊版服務。請關閉原服務並執行 start_gpu.cmd。');
+      $('gpu-status').textContent='NVIDIA GPU 已啟用／原尺寸；三個 OCR 模型均已確認 CUDA。';
+      connectionReady=true;saveSettings();
       $('connection-status').textContent='連線測試成功。';
       openSettings(false);
       message(stream && $('camera-overlay').hidden?'已就緒':'連線成功，請開啟相機');
@@ -234,9 +226,6 @@ async function captureAndRecognize(){
     canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bounds.width));canvas.height=Math.max(1,Math.round(bounds.height));
     const context=canvas.getContext('2d');if(!context)throw new Error('無法擷取相機畫面，請重新整理後再試。');
     context.drawImage(video,bounds.x,bounds.y,bounds.width,bounds.height,0,0,canvas.width,canvas.height);
-    if(speedArmed){clearTimeout(timeout);await runSpeedTest(canvas);return;}
-    const limit=speedInfo && speedInfo.active.width;
-    if(limit && canvas.width>limit){const resized=document.createElement('canvas');resized.width=limit;resized.height=Math.max(1,Math.round(canvas.height*limit/canvas.width));resized.getContext('2d').drawImage(canvas,0,0,resized.width,resized.height);canvas.width=canvas.height=0;canvas=resized;}
     image=canvas.toDataURL('image/png');
     captureSeconds=(performance.now()-started)/1000;phase='上傳或等待電腦回應';
     const data=await requestService('/recognize',{method:'POST',body:JSON.stringify({image}),signal:controller.signal});
@@ -246,7 +235,7 @@ async function captureAndRecognize(){
     const d=data.diagnostics || {},t=d.timings || {};
     const fmt=x=>typeof x==='number' && Number.isFinite(x)?x.toFixed(2)+' 秒':'未提供';
     const reason={recognized:'已讀出車牌',no_text:'OCR 沒有讀出文字',invalid_plate_format:'OCR 讀到文字，但不符合車牌格式'};
-    $('recognition-diagnostics').textContent=[reason[d.reason] || (plate?'已讀出車牌':'舊版後端未提供原因'), '模式：'+(d.mode || '原版'), '總耗時：'+fmt((performance.now()-started)/1000), '手機擷取：'+fmt(captureSeconds), '接收上傳：'+fmt(t.receive), '圖片解碼：'+fmt(t.decode), 'OCR 辨識：'+fmt(t.ocr), '名單查詢：'+fmt(t.lookup), 'OCR 原始文字：'+(Array.isArray(d.ocr_text)?d.ocr_text.join(' / '):'未提供')].join('\n');
+    $('recognition-diagnostics').textContent=[reason[d.reason] || (plate?'已讀出車牌':'舊版後端未提供原因'), '模式：'+(d.mode || '未提供'), '總耗時：'+fmt((performance.now()-started)/1000), '手機擷取：'+fmt(captureSeconds), '接收上傳：'+fmt(t.receive), '圖片解碼：'+fmt(t.decode), 'OCR 辨識：'+fmt(t.ocr), '名單查詢：'+fmt(t.lookup), 'OCR 原始文字：'+(Array.isArray(d.ocr_text)?d.ocr_text.join(' / '):'未提供')].join('\n');
     if(!plate){message('辨識不成功，請重試','error');$('database-status').textContent='';return;}
     $('plate').textContent=plate;message('車牌辨識成功，請核對號碼。');
     renderDatabase(data.lookup || {status:'unavailable'});
@@ -265,102 +254,5 @@ async function captureAndRecognize(){
 guide.addEventListener('click',captureAndRecognize);
 window.addEventListener('pagehide',()=>{invalidateConnection();generation++;if(ocrController)ocrController.abort();ocrController=null;busy=false;releaseCamera();});
 window.addEventListener('pageshow',e=>{if(e.persisted)startCamera();});
-let speedInfo=null, speedArmed=false, speedRunning=false, speedCancel=false, speedController=null;
-let speedExpected='', speedSamples=[], speedRecommended=null, speedConnection='';
-function receiveSpeed(info){
-  speedInfo=info || null;
-  $('speed-active').textContent=info?'目前模式：'+info.active.label+'。'+(info.notice || '')+' '+(info.providers.length?info.providers.join(' / '):'執行引擎尚未確認'):'請更新電腦端，才能測速。';
-}
-function normalizedPlate(text){
-  const s=text.normalize('NFKC').toUpperCase().replace(/[\s\-‐‑‒–—−﹣－]/g,'');
-  if(/^[A-Z]{3}[0-9]{4}$/.test(s))return s.slice(0,3)+'-'+s.slice(3);
-  if(/^(?:[A-Z]{2}|[A-Z][0-9]|[0-9][A-Z])[0-9]{4}$/.test(s))return s.slice(0,2)+'-'+s.slice(2);
-  if(/^[0-9]{4}(?:[A-Z]{2}|[A-Z][0-9]|[0-9][A-Z])$/.test(s))return s.slice(0,4)+'-'+s.slice(4);
-  return '';
-}
-function median(values){const sorted=[...values].sort((a,b)=>a-b);const n=sorted.length;return n%2?sorted[(n-1)/2]:(sorted[n/2-1]+sorted[n/2])/2;}
-function speedSummary(){
-  $('speed-rows').replaceChildren();speedRecommended=null;
-  if(!speedInfo)return;
-  const choices=[];
-  for(const mode of speedInfo.modes){
-    const results=speedSamples.map(sample=>sample.results[mode.id]);
-    if(!results.length)continue;
-    const correct=results.filter((r,i)=>r && r.plates && r.plates.length===3 && r.plates.every(p=>p===speedSamples[i].expected)).length;
-    const times=results.filter(r=>r && Array.isArray(r.runs)).flatMap(r=>r.runs).filter(Number.isFinite);
-    const seconds=times.length?median(times):null;
-    const tr=document.createElement('tr');
-    const last=results[results.length-1];
-    const detail=last && last.plates?[...new Set(last.plates.map(p=>p || '未讀出'))].join(' / ')+'；'+last.dimensions+'；'+last.kib+' KB':last && last.error || '未完成';
-    for(const text of [mode.label,correct+'/'+results.length,seconds===null?'不支援／失敗':seconds.toFixed(2),detail]){const td=document.createElement('td');td.textContent=text;tr.appendChild(td);}
-    $('speed-rows').appendChild(tr);
-    if(correct===results.length && seconds!==null)choices.push({mode,seconds});
-  }
-  choices.sort((a,b)=>a.seconds-b.seconds);
-  if(choices.length)speedRecommended=choices[0].mode.id;
-  $('speed-apply').disabled=!speedRecommended || speedRunning;
-  $('speed-recommendation').textContent=!speedSamples.length?'':choices.length?'目前 '+speedSamples.length+' 張樣本皆正確的最快模式：'+choices[0].mode.label+(speedSamples.length<3?'。樣本仍少，建議繼續測試。':'。可套用此模式。'):'沒有所有樣本均正確的模式。請確認填入號碼與拍攝品質，再重新測試。';
-}
-function speedControls(running){
-  speedRunning=running;
-  for(const id of ['speed-start','speed-reset','speed-clear','speed-expected','endpoint','key','forget-settings','check'])$(id).disabled=running;
-  $('speed-cancel').hidden=!running && !speedArmed;
-  $('speed-apply').disabled=running || !speedRecommended;
-}
-$('speed-start').addEventListener('click',()=>{
-  if(busy || healthController || !connectionReady || !stream || !speedInfo){$('speed-progress').textContent='請先開啟相機、測試連線，並更新電腦端。';return;}
-  speedExpected=normalizedPlate($('speed-expected').value);
-  if(!speedExpected){$('speed-progress').textContent='請先填入正確車牌號碼。';return;}
-  const config=connectionSettings(), identity=config.url+'\n'+config.key;
-  if(speedConnection!==identity){speedSamples=[];speedConnection=identity;speedSummary();}
-  speedArmed=true;speedCancel=false;$('speed-cancel').hidden=false;openSettings(false);
-  message('測速準備完成，對準剛填入的車牌後點一下綠框。');
-});
-$('speed-cancel').addEventListener('click',()=>{speedArmed=false;speedCancel=true;$('speed-cancel').hidden=true;$('speed-progress').textContent='已要求停止；目前這組完成後停止。';message('已取消測速，等待目前測試結束。');});
-$('speed-clear').addEventListener('click',()=>{if(speedRunning)return;speedSamples=[];speedSummary();$('speed-progress').textContent='已清除，可重新測試。';});
-async function applySpeed(id){
-  if(busy || healthController || !connectionReady)return;
-  busy=true;speedControls(true);syncGuide();const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),90000);
-  try{const result=await requestService('/mode',{method:'POST',body:JSON.stringify({mode:id}),signal:controller.signal});receiveSpeed(result.speed);$('speed-progress').textContent='已儲存，之後拍照使用此模式；重啟電腦服務也會保留。';message('已就緒');}
-  catch(e){$('speed-progress').textContent='套用未確認：'+e.message+'。請重新測試連線確認目前模式。';}
-  finally{clearTimeout(timer);busy=false;speedControls(false);syncGuide();}
-}
-$('speed-apply').addEventListener('click',()=>{if(speedRecommended)applySpeed(speedRecommended);});
-$('speed-reset').addEventListener('click',()=>applySpeed('cpu-0-0'));
-async function runSpeedTest(canvas){
-  speedArmed=false;speedCancel=false;speedControls(true);openSettings(true);$('speed-panel').open=true;
-  const sample={expected:speedExpected,results:{}};
-  const variants=new Map();let complete=true;
-  try{
-    for(const width of [0,1280,960]){
-      const factor=width?Math.min(1,width/canvas.width):1;
-      const copy=document.createElement('canvas');copy.width=Math.max(1,Math.round(canvas.width*factor));copy.height=Math.max(1,Math.round(canvas.height*factor));
-      copy.getContext('2d').drawImage(canvas,0,0,copy.width,copy.height);
-      variants.set(width,{image:copy.toDataURL('image/png'),width:copy.width,height:copy.height});copy.width=copy.height=0;
-    }
-    const modes=[...speedInfo.modes];
-    // Alternate order between samples to reduce always-first/last timing bias.
-    if(speedSamples.length%2)modes.reverse();
-    for(let i=0;i<modes.length;i++){
-      if(speedCancel){complete=false;break;}
-      const mode=modes[i],variant=variants.get(mode.width);
-      $('speed-progress').textContent='測試 '+(i+1)+'/'+modes.length+'：'+mode.label+'，實際 '+variant.width+' × '+variant.height+'。請稍候。';
-      const controller=new AbortController();speedController=controller;const timer=setTimeout(()=>controller.abort(),90000);
-      try{
-        const result=await requestService('/benchmark',{method:'POST',body:JSON.stringify({image:variant.image,mode:mode.id}),signal:controller.signal});
-        if(!Array.isArray(result.plates) || !Array.isArray(result.runs))throw new Error('後端版本不符');
-        result.dimensions=variant.width+' × '+variant.height;result.kib=Math.round((variant.image.length-variant.image.indexOf(',')-1)*.75/1024);
-        sample.results[mode.id]=result;
-      }catch(e){
-        sample.results[mode.id]={error:e.message};
-        if(e.name==='AbortError' || e instanceof TypeError){complete=false;break;}
-      }finally{clearTimeout(timer);speedController=null;}
-    }
-    if(complete && !speedCancel){speedSamples.push(sample);$('speed-progress').textContent='本張測試完成。可關閉設定換一面車牌再測；原模式尚未改變。';}
-    else $('speed-progress').textContent='測試中止，本張未計入排名。若電腦仍在處理，請稍候再試。';
-  }finally{variants.clear();speedControls(false);speedSummary();message('測速結束，請查看設定內的結果。');}
-}
-window.addEventListener('pagehide',()=>{speedArmed=false;speedCancel=true;if(speedController)speedController.abort();});
-
 startCamera();
 </script></body></html>
