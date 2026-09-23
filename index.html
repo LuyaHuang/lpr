@@ -28,6 +28,7 @@ button,input{font:inherit}button{cursor:pointer;border:1px solid #587366;border-
 <label for="key">Connection Key／連線金鑰</label><input id="key" type="password" autocomplete="off" placeholder="貼上電腦顯示的連線金鑰">
 <button id="check" type="button">測試連線</button><p id="connection-status" role="status" class="note">尚未測試。</p>
 <button id="forget-settings" type="button">清除記住的設定</button><p id="storage-status" class="note" role="status">網址與金鑰會自動記在這支手機的瀏覽器；請使用自己的手機。</p>
+<details><summary>最近一次辨識診斷</summary><p id="recognition-diagnostics" class="note" style="white-space:pre-wrap;overflow-wrap:anywhere">尚未辨識</p></details>
 </dialog>
 <section class="preview" aria-label="相機即時預覽">
 <video id="video" autoplay muted playsinline aria-label="相機即時畫面"></video>
@@ -108,7 +109,7 @@ function syncGuide(){guide.setAttribute('aria-disabled',String(busy || !stream |
     });
     let data;
     try { data = await response.json(); } catch (_) { throw new Error('服務沒有回應，請確認電腦的兩個視窗保持開啟，且網址為本次啟動的網址。'); }
-    if (!response.ok) throw new Error(data.error || '服務暫時無法使用。');
+    if (!response.ok) throw new Error((data.error || '服務暫時無法使用。') + '（HTTP ' + response.status + (data.stage ? '／' + data.stage : '') + '）');
     return data;
   }
 async function testConnection(){
@@ -128,7 +129,7 @@ async function testConnection(){
       message(stream && $('camera-overlay').hidden?'已就緒':'連線成功，請開啟相機');
     }catch(e){
       if(id!==healthGeneration)return;
-      $('connection-status').textContent=e.name==='AbortError'?'連線逾時，請檢查電腦服務與網址。':e instanceof TypeError?'無法連線，請檢查電腦服務、網路與網址。':e.message;
+    $('connection-status').textContent=e.name==='AbortError'?'連線逾時，請檢查電腦服務與網址。':e instanceof TypeError?'無法連線，請檢查電腦服務、網路與網址。':e.message;
       message('連線失敗，請重新設定','error');openSettings(true);
     }finally{
       clearTimeout(timeout);
@@ -212,6 +213,8 @@ async function captureAndRecognize(){
   $('plate').textContent='—';$('students').replaceChildren();$('students').hidden=true;$('database-status').textContent='等待車牌辨識';message('辨識中…');
   const controller=new AbortController();ocrController=controller;
   const timeout=setTimeout(()=>controller.abort(),45000);
+  const started=performance.now();let phase='擷取照片',captureSeconds=0;
+  $('recognition-diagnostics').textContent='辨識中…';
   let canvas=null, image=null;
   try{
     const bounds=cropBounds(video.videoWidth,video.videoHeight,video.getBoundingClientRect(),guide.querySelector('svg').getBoundingClientRect());
@@ -220,16 +223,22 @@ async function captureAndRecognize(){
     const context=canvas.getContext('2d');if(!context)throw new Error('無法擷取相機畫面，請重新整理後再試。');
     context.drawImage(video,bounds.x,bounds.y,bounds.width,bounds.height,0,0,canvas.width,canvas.height);
     image=canvas.toDataURL('image/png');
+    captureSeconds=(performance.now()-started)/1000;phase='上傳或等待電腦回應';
     const data=await requestService('/recognize',{method:'POST',body:JSON.stringify({image}),signal:controller.signal});
     clearTimeout(timeout);image=null;canvas.width=canvas.height=0;
     if(id!==generation)return;
     const plate=typeof data.plate==='string'?data.plate.trim():'';
+    const d=data.diagnostics || {},t=d.timings || {};
+    const fmt=x=>typeof x==='number' && Number.isFinite(x)?x.toFixed(2)+' 秒':'未提供';
+    const reason={recognized:'已讀出車牌',no_text:'OCR 沒有讀出文字',invalid_plate_format:'OCR 讀到文字，但不符合車牌格式'};
+    $('recognition-diagnostics').textContent=[reason[d.reason] || (plate?'已讀出車牌':'舊版後端未提供原因'), '總耗時：'+fmt((performance.now()-started)/1000), '手機擷取：'+fmt(captureSeconds), '接收上傳：'+fmt(t.receive), '圖片解碼：'+fmt(t.decode), 'OCR 辨識：'+fmt(t.ocr), '名單查詢：'+fmt(t.lookup), 'OCR 原始文字：'+(Array.isArray(d.ocr_text)?d.ocr_text.join(' / '):'未提供')].join('\n');
     if(!plate){message('辨識不成功，請重試','error');$('database-status').textContent='';return;}
     $('plate').textContent=plate;message('車牌辨識成功，請核對號碼。');
     renderDatabase(data.lookup || {status:'unavailable'});
   }catch(e){
     if(id!==generation)return;
     message('辨識不成功，請重試','error');
+    $('recognition-diagnostics').textContent='失敗階段：'+phase+'\n總耗時：'+((performance.now()-started)/1000).toFixed(2)+' 秒\n'+(e.name==='AbortError'?'等待超過 45 秒':e instanceof TypeError?'網路連線失敗，未收到可用結果':e.message);
     $('connection-status').textContent=e.name==='AbortError'?'辨識逾時，請確認電腦連線後重試。':e instanceof TypeError?'無法連線，請檢查電腦服務與連線設定。':e.message;
     $('database-status').textContent='';
   }finally{
