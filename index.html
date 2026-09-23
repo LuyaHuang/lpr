@@ -19,7 +19,7 @@ button,input{font:inherit}button{cursor:pointer;border:1px solid #587366;border-
 .guide svg{display:block;width:100%;height:auto;overflow:visible;box-shadow:0 0 0 999px #0003;border-radius:10px;pointer-events:none}.guide[aria-disabled="true"]{cursor:wait}.preview[data-busy="true"] .guide rect{stroke:#ffd783}
 .camera-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#101b19eb;padding:16px;text-align:center;color:#b5c9c0}
 .hint{text-align:center;color:#a9d9c0;font-size:14px;margin:7px 0}.status{padding:9px 12px;border:1px solid #365447;border-radius:12px;line-height:1.65;background:#192b23;overflow-wrap:anywhere}.status[data-kind="error"]{color:#ffe0d6;background:#392622;border-color:#9c6150}
-#result{margin-top:10px;padding:14px;border:1px solid #365447;border-radius:16px}h2{font-size:14px;font-weight:500;color:#aec5b9;margin:0 0 8px}#plate{font-size:clamp(32px,9vw,48px);font-weight:750;letter-spacing:.06em;overflow-wrap:anywhere}#database-status:empty{display:none}#database-status{margin:8px 0 0;color:#b5c9c0}#students{list-style:none;padding:0;margin:10px 0 0;line-height:1.6;font-size:20px}#students li{padding:8px 0;border-top:1px solid #365447;overflow-wrap:anywhere}[hidden]{display:none!important}
+#result{margin-top:10px;padding:14px;border:1px solid #365447;border-radius:16px}h2{font-size:14px;font-weight:500;color:#aec5b9;margin:0 0 8px}#plate{font-size:clamp(32px,9vw,48px);font-weight:750;letter-spacing:.06em;overflow-wrap:anywhere}#database-status:empty{display:none}#database-status{margin:8px 0 0;color:#b5c9c0}#students{list-style:none;padding:0;margin:5px 0 0;line-height:1.5;font-size:clamp(14px,4vw,17px)}#students li{padding:7px 0;border-top:1px solid #365447;white-space:nowrap;overflow-x:auto}[hidden]{display:none!important}
 </style>
 </head><body><main>
 <header><h1>路亞車牌辨識</h1><button id="settings-toggle" aria-expanded="false" aria-controls="connection" type="button">⚙ 設定</button></header>
@@ -202,8 +202,8 @@ $('retry').addEventListener('click',startCamera);
 function renderDatabase(data){
   const list=$('students');list.replaceChildren();list.hidden=true;
   if(data.status==='found' && Array.isArray(data.students) && data.students.length){
-    $('database-status').textContent='辨識成功／已找到學生';
-    for(const student of data.students){const item=document.createElement('li');item.textContent=[student.name,student.englishName].filter(Boolean).join('　');list.appendChild(item);}list.hidden=false;
+    $('database-status').textContent='';
+    for(const student of data.students){const item=document.createElement('li');item.textContent=[student.className,student.name,student.englishName].filter(Boolean).join('　');list.appendChild(item);}list.hidden=false;
   }else if(data.status==='not_found'){$('database-status').textContent='查無此車牌，請確認車牌或重新辨識。';}
   else if(data.status==='error'){$('database-status').textContent=data.message || '無法讀取學生名單';}
   else{$('database-status').textContent='請更新電腦端 server.py，才能查詢學生名單。';}
