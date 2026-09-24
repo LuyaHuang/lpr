@@ -19,7 +19,7 @@ button,input{font:inherit}button{cursor:pointer;border:1px solid #587366;border-
 .guide svg{display:block;width:100%;height:auto;overflow:visible;box-shadow:0 0 0 999px #0003;border-radius:10px;pointer-events:none}.guide[aria-disabled="true"]{cursor:wait}.preview[data-busy="true"] .guide rect{stroke:#ffd783}
 .camera-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#101b19eb;padding:16px;text-align:center;color:#b5c9c0}
 .hint{text-align:center;color:#a9d9c0;font-size:14px;margin:7px 0}.status{padding:9px 12px;border:1px solid #365447;border-radius:12px;line-height:1.65;background:#192b23;overflow-wrap:anywhere}.status[data-kind="error"]{color:#ffe0d6;background:#392622;border-color:#9c6150}
-#result{margin-top:10px;padding:14px;border:1px solid #365447;border-radius:16px}h2{font-size:14px;font-weight:500;color:#aec5b9;margin:0 0 8px}#plate{font-size:clamp(32px,9vw,48px);font-weight:750;letter-spacing:.06em;overflow-wrap:anywhere}#database-status:empty{display:none}#database-status{margin:8px 0 0;color:#b5c9c0}#students{list-style:none;padding:0;margin:5px 0 0;line-height:1.5;font-size:clamp(16px,4.5vw,19px)}#students li{padding:8px 0;border-top:1px solid #365447}.student-class{font-size:12px;line-height:1.4;color:#aec5b9;margin-bottom:2px}.student-name{font-size:clamp(19px,5.2vw,23px);line-height:1.5;white-space:nowrap;overflow-x:auto}[hidden]{display:none!important}
+#result{margin-top:10px;padding:14px;border:1px solid #365447;border-radius:16px}h2{font-size:14px;font-weight:500;color:#aec5b9;margin:0 0 8px}#plate{font-size:clamp(32px,9vw,48px);font-weight:750;letter-spacing:.06em;overflow-wrap:anywhere}#database-status:empty{display:none}#database-status{margin:8px 0 0;color:#b5c9c0}#students{list-style:none;padding:0;margin:5px 0 0;line-height:1.5;font-size:clamp(16px,4.5vw,19px)}#students li{padding:8px 0;border-top:1px solid #365447}.student-class{font-size:12px;line-height:1.4;color:#aec5b9;margin-bottom:2px}.student-name{font-size:clamp(21px,5.7vw,25px);line-height:1.5;white-space:nowrap;overflow-x:auto}[hidden]{display:none!important}
 </style>
 </head><body><main>
 <header><h1>路亞車牌辨識</h1><button id="settings-toggle" aria-expanded="false" aria-controls="connection" type="button">⚙ 設定</button></header>
@@ -173,6 +173,20 @@ $('check').addEventListener('click',testConnection);
   }
 
 
+// Keep original crop pixels unless PNG would exceed the existing server limits.
+function encodeCrop(source,bounds,canvas){
+  let scale=Math.min(1,Math.sqrt(11000000/(bounds.width*bounds.height)));
+  for(let attempt=0;attempt<12;attempt++){
+    canvas.width=Math.max(1,Math.floor(bounds.width*scale));canvas.height=Math.max(1,Math.floor(bounds.height*scale));
+    const context=canvas.getContext('2d');if(!context)throw new Error('無法擷取相機畫面，請重新整理後再試。');
+    context.drawImage(source,bounds.x,bounds.y,bounds.width,bounds.height,0,0,canvas.width,canvas.height);
+    const image=canvas.toDataURL('image/png');
+    if(!image.startsWith('data:image/png;base64,'))throw new Error('無法產生照片，請重試。');
+    if(image.length<7.5*1024*1024)return {image,reduced:scale<1};
+    scale*=0.85;
+  }
+  throw new Error('照片太大，請重試。');
+}
 function releaseCamera(){
   requestId++; starting=false;
   if(stream) stream.getTracks().forEach(track=>track.stop());
@@ -186,7 +200,7 @@ async function startCamera(){
   const id=++requestId;starting=true;$('retry').hidden=true;$('camera-label').textContent='正在開啟相機…';
   message('正在啟動相機；若出現權限提示，請選擇允許。');
   try{
-    const acquired=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}});
+    const acquired=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:3840},height:{ideal:2160}}});
     if(id!==requestId){acquired.getTracks().forEach(t=>t.stop());return;}
     stream=acquired;video.srcObject=acquired;
     const track=acquired.getVideoTracks()[0];
@@ -224,14 +238,13 @@ async function captureAndRecognize(){
   const timeout=setTimeout(()=>controller.abort(),45000);
   const started=performance.now();let phase='擷取照片',captureSeconds=0;
   $('recognition-diagnostics').textContent='辨識中…';
-  let canvas=null, image=null;
+  let canvas=null, image=null, captureInfo='';
   try{
     const bounds=cropBounds(video.videoWidth,video.videoHeight,video.getBoundingClientRect(),guide.querySelector('svg').getBoundingClientRect());
     if(bounds.width<=0 || bounds.height<=0)throw new Error('無法擷取照片，請確認相機畫面正常後重試。');
-    canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bounds.width));canvas.height=Math.max(1,Math.round(bounds.height));
-    const context=canvas.getContext('2d');if(!context)throw new Error('無法擷取相機畫面，請重新整理後再試。');
-    context.drawImage(video,bounds.x,bounds.y,bounds.width,bounds.height,0,0,canvas.width,canvas.height);
-    image=canvas.toDataURL('image/png');
+    canvas=document.createElement('canvas');
+    const encoded=encodeCrop(video,bounds,canvas);image=encoded.image;
+    captureInfo='相機：'+video.videoWidth+' × '+video.videoHeight+'；上傳：'+canvas.width+' × '+canvas.height+(encoded.reduced?'（為符合上傳限制已縮小）':'');
     captureSeconds=(performance.now()-started)/1000;phase='上傳或等待電腦回應';
     const data=await requestService('/recognize',{method:'POST',body:JSON.stringify({image}),signal:controller.signal});
     clearTimeout(timeout);image=null;canvas.width=canvas.height=0;
@@ -240,7 +253,7 @@ async function captureAndRecognize(){
     const d=data.diagnostics || {},t=d.timings || {};
     const fmt=x=>typeof x==='number' && Number.isFinite(x)?x.toFixed(2)+' 秒':'未提供';
     const reason={recognized:'已讀出車牌',no_text:'OCR 沒有讀出文字',invalid_plate_format:'OCR 讀到文字，但不符合車牌格式'};
-    $('recognition-diagnostics').textContent=[reason[d.reason] || (plate?'已讀出車牌':'舊版後端未提供原因'), '模式：'+(d.mode || '未提供'), '總耗時：'+fmt((performance.now()-started)/1000), '手機擷取：'+fmt(captureSeconds), '接收上傳：'+fmt(t.receive), '圖片解碼：'+fmt(t.decode), 'OCR 辨識：'+fmt(t.ocr), '名單查詢：'+fmt(t.lookup), 'OCR 原始文字：'+(Array.isArray(d.ocr_text)?d.ocr_text.join(' / '):'未提供')].join('\n');
+    $('recognition-diagnostics').textContent=[reason[d.reason] || (plate?'已讀出車牌':'舊版後端未提供原因'), '模式：'+(d.mode || '未提供'), captureInfo, '總耗時：'+fmt((performance.now()-started)/1000), '手機擷取：'+fmt(captureSeconds), '接收上傳：'+fmt(t.receive), '圖片解碼：'+fmt(t.decode), 'OCR 辨識：'+fmt(t.ocr), '名單查詢：'+fmt(t.lookup), 'OCR 原始文字：'+(Array.isArray(d.ocr_text)?d.ocr_text.join(' / '):'未提供')].join('\n');
     if(!plate){message('辨識不成功，請重試','error');$('database-status').textContent='';return;}
     $('plate').textContent=plate;message('車牌辨識成功，請核對號碼。');
     renderDatabase(data.lookup || {status:'unavailable'});
