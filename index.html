@@ -14,7 +14,7 @@
 header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}h1{font-size:clamp(22px,5vw,30px);margin:0;color:#fff}
 button,input{font:inherit}button{cursor:pointer;border:1px solid #587366;border-radius:12px;padding:10px 14px;min-height:44px;background:#243e32;color:#eef7f2}button:disabled{opacity:.55;cursor:default}button:focus-visible{outline:3px solid white;outline-offset:4px}
 #settings-toggle{white-space:nowrap}#connection{border:1px solid #365447;border-radius:16px;padding:18px;width:calc(100% - 32px);max-width:480px;max-height:85dvh;overflow:auto;background:#101b19;color:#eef7f2}#connection::backdrop{background:#0009}.dialog-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.dialog-head h2{margin:0;font-size:20px;color:#fff}label{display:block;margin:10px 0 6px}input{width:100%;padding:12px;background:#0b1711;color:white;border:1px solid #587366;border-radius:8px}#check{margin-top:12px}.note{font-size:13px;color:#aec5b9;line-height:1.7}
-.preview{position:relative;width:100%;aspect-ratio:19/9;background:#060c0a;border:1px solid #354b42;border-radius:18px;overflow:hidden}video{display:block;width:100%;height:100%;object-fit:cover}
+.preview{position:relative;width:100%;aspect-ratio:19/9;background:#060c0a;border:1px solid #354b42;border-radius:18px;overflow:hidden}video{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:block;width:100%;height:100%;max-width:none;max-height:none;object-fit:cover}
 .guide{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:88%;padding:0;border:0;border-radius:10px;min-height:0;background:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 .guide svg{display:block;width:100%;height:auto;overflow:visible;box-shadow:0 0 0 999px #0003;border-radius:10px;pointer-events:none}.guide[aria-disabled="true"]{cursor:wait}.preview[data-busy="true"] .guide rect{stroke:#ffd783}
 .camera-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#101b19eb;padding:16px;text-align:center;color:#b5c9c0}
@@ -187,6 +187,19 @@ function encodeCrop(source,bounds,canvas){
   }
   throw new Error('照片太大，請重試。');
 }
+// Give Safari explicit dimensions matching the stream, independent of portrait startup.
+function fitCameraPreview(){
+  const preview=document.querySelector('.preview');
+  const width=preview.clientWidth,height=preview.clientHeight;
+  if(!video.videoWidth || !video.videoHeight || !width || !height)return;
+  const scale=Math.max(width/video.videoWidth,height/video.videoHeight);
+  video.style.width=(video.videoWidth*scale)+'px';
+  video.style.height=(video.videoHeight*scale)+'px';
+}
+for(const event of ['loadedmetadata','resize','playing'])video.addEventListener(event,fitCameraPreview);
+window.addEventListener('resize',fitCameraPreview);
+window.addEventListener('orientationchange',()=>{fitCameraPreview();setTimeout(fitCameraPreview,250);});
+if(typeof ResizeObserver!=='undefined')new ResizeObserver(fitCameraPreview).observe(document.querySelector('.preview'));
 function releaseCamera(){
   requestId++; starting=false;
   if(stream) stream.getTracks().forEach(track=>track.stop());
@@ -205,7 +218,7 @@ async function startCamera(){
     stream=acquired;video.srcObject=acquired;
     const track=acquired.getVideoTracks()[0];
     track.addEventListener('ended',()=>{if(stream!==acquired)return;releaseCamera();message('相機已中斷或權限已被撤回。請確認權限後點相機區重試。','error');});
-    await video.play();if(id!==requestId)return;
+    await video.play();if(id!==requestId)return;fitCameraPreview();
     $('camera-overlay').hidden=true;syncGuide();
     await testConnection();
   }catch(error){if(id!==requestId)return;releaseCamera();message(errorText(error),'error');}
@@ -240,6 +253,7 @@ async function captureAndRecognize(){
   $('recognition-diagnostics').textContent='辨識中…';
   let canvas=null, image=null, captureInfo='';
   try{
+    fitCameraPreview();
     const bounds=cropBounds(video.videoWidth,video.videoHeight,video.getBoundingClientRect(),guide.querySelector('svg').getBoundingClientRect());
     if(bounds.width<=0 || bounds.height<=0)throw new Error('無法擷取照片，請確認相機畫面正常後重試。');
     canvas=document.createElement('canvas');
