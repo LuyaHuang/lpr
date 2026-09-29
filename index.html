@@ -14,12 +14,13 @@
 header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}h1{font-size:clamp(22px,5vw,30px);margin:0;color:#fff}
 button,input{font:inherit}button{cursor:pointer;border:1px solid #587366;border-radius:12px;padding:10px 14px;min-height:44px;background:#243e32;color:#eef7f2}button:disabled{opacity:.55;cursor:default}button:focus-visible{outline:3px solid white;outline-offset:4px}
 #settings-toggle{white-space:nowrap}#connection{border:1px solid #365447;border-radius:16px;padding:18px;width:calc(100% - 32px);max-width:480px;max-height:85dvh;overflow:auto;background:#101b19;color:#eef7f2}#connection::backdrop{background:#0009}.dialog-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.dialog-head h2{margin:0;font-size:20px;color:#fff}label{display:block;margin:10px 0 6px}input{width:100%;padding:12px;background:#0b1711;color:white;border:1px solid #587366;border-radius:8px}#check{margin-top:12px}.note{font-size:13px;color:#aec5b9;line-height:1.7}
-.preview{position:relative;width:100%;aspect-ratio:19/9;background:#060c0a;border:1px solid #354b42;border-radius:18px;overflow:hidden}video{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:block;width:100%;height:100%;max-width:none;max-height:none;object-fit:cover}
+.preview{position:relative;width:100%;aspect-ratio:19/9;background:#060c0a;border:1px solid #354b42;border-radius:18px;overflow:hidden}video{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:block;width:100%;height:100%;max-width:none;max-height:none;object-fit:fill}
 .guide{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:88%;padding:0;border:0;border-radius:10px;min-height:0;background:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 .guide svg{display:block;width:100%;height:auto;overflow:visible;box-shadow:0 0 0 999px #0003;border-radius:10px;pointer-events:none}.guide[aria-disabled="true"]{cursor:wait}.preview[data-busy="true"] .guide rect{stroke:#ffd783}
-.camera-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#101b19eb;padding:16px;text-align:center;color:#b5c9c0}
+.camera-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#101b19;z-index:3;padding:16px;text-align:center;color:#b5c9c0}
 .hint{text-align:center;color:#a9d9c0;font-size:14px;margin:7px 0}.status{padding:9px 12px;border:1px solid #365447;border-radius:12px;line-height:1.65;background:#192b23;overflow-wrap:anywhere}.status[data-kind="error"]{color:#ffe0d6;background:#392622;border-color:#9c6150}
 #result{margin-top:10px;padding:14px;border:1px solid #365447;border-radius:16px}h2{font-size:14px;font-weight:500;color:#aec5b9;margin:0 0 8px}#plate{font-size:clamp(32px,9vw,48px);font-weight:750;letter-spacing:.06em;overflow-wrap:anywhere}#database-status:empty{display:none}#database-status{margin:8px 0 0;color:#b5c9c0}#students{list-style:none;padding:0;margin:5px 0 0;line-height:1.5;font-size:clamp(16px,4.5vw,19px)}#students li{padding:8px 0;border-top:1px solid #365447}.student-class{font-size:12px;line-height:1.4;color:#aec5b9;margin-bottom:2px}.student-name{font-size:clamp(21px,5.7vw,25px);line-height:1.5;white-space:nowrap;overflow-x:auto}[hidden]{display:none!important}
+.preview:not([data-camera-ready="true"]) video{opacity:0}.preview:not([data-camera-ready="true"]) .guide{visibility:hidden}
 </style>
 </head><body><main>
 <header><h1>路亞車牌辨識</h1><button id="settings-toggle" aria-expanded="false" aria-controls="connection" type="button">⚙ 設定</button></header>
@@ -195,21 +196,41 @@ function fitCameraPreview(){
   const scale=Math.max(width/video.videoWidth,height/video.videoHeight);
   video.style.width=(video.videoWidth*scale)+'px';
   video.style.height=(video.videoHeight*scale)+'px';
+  return true;
 }
 for(const event of ['loadedmetadata','resize','playing'])video.addEventListener(event,fitCameraPreview);
 window.addEventListener('resize',fitCameraPreview);
 window.addEventListener('orientationchange',()=>{fitCameraPreview();setTimeout(fitCameraPreview,250);});
 if(typeof ResizeObserver!=='undefined')new ResizeObserver(fitCameraPreview).observe(document.querySelector('.preview'));
+// First permission grant can resolve play() before Safari settles stream dimensions.
+async function waitForCameraLayout(id){
+  const deadline=performance.now()+8000;
+  let previous='',stable=0;
+  while(id===requestId && stream){
+    const preview=document.querySelector('.preview');
+    const signature=[video.videoWidth,video.videoHeight,preview.clientWidth,preview.clientHeight].join(':');
+    if(video.readyState>=2 && fitCameraPreview()){
+      stable=signature===previous?stable+1:0;
+      if(stable>=5)return true;
+    }else stable=0;
+    previous=signature;
+    if(performance.now()>=deadline)throw new Error('相機畫面尚未準備完成，請點相機區重試。');
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  return false;
+}
 function releaseCamera(){
+  document.querySelector('.preview').dataset.cameraReady='false';
   requestId++; starting=false;
   if(stream) stream.getTracks().forEach(track=>track.stop());
-  stream=null;video.srcObject=null;syncGuide();
+  stream=null;video.srcObject=null;video.style.width='100%';video.style.height='100%';syncGuide();
   $('camera-overlay').hidden=false;$('camera-label').textContent='相機尚未開啟';$('retry').hidden=false;
 }
 async function startCamera(){
   if(starting || stream) return;
   if(!window.isSecureContext){releaseCamera();message('相機需要安全連線。請使用 GitHub Pages 的 HTTPS 網址開啟此頁面。','error');return;}
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){releaseCamera();message('此瀏覽器無法使用相機功能。請改用手機 Chrome，並確認瀏覽器已更新。','error');return;}
+  document.querySelector('.preview').dataset.cameraReady='false';$('camera-overlay').hidden=false;
   const id=++requestId;starting=true;$('retry').hidden=true;$('camera-label').textContent='正在開啟相機…';
   message('正在啟動相機；若出現權限提示，請選擇允許。');
   try{
@@ -218,8 +239,15 @@ async function startCamera(){
     stream=acquired;video.srcObject=acquired;
     const track=acquired.getVideoTracks()[0];
     track.addEventListener('ended',()=>{if(stream!==acquired)return;releaseCamera();message('相機已中斷或權限已被撤回。請確認權限後點相機區重試。','error');});
-    await video.play();if(id!==requestId)return;fitCameraPreview();
+    await video.play();if(id!==requestId)return;
+    if(!await waitForCameraLayout(id))return;
+    // Keep the video transparent while the browser commits the final layout.
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    if(id!==requestId || stream!==acquired)return;
+    fitCameraPreview();
+    document.querySelector('.preview').dataset.cameraReady='true';
     $('camera-overlay').hidden=true;syncGuide();
+    for(const delay of [100,300,700,1500,3000])setTimeout(()=>{if(id===requestId && stream===acquired)fitCameraPreview();},delay);
     await testConnection();
   }catch(error){if(id!==requestId)return;releaseCamera();message(errorText(error),'error');}
   finally{if(id===requestId)starting=false;}
